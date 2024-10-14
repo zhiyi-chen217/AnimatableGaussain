@@ -250,8 +250,8 @@ class PoseDataset(Dataset):
                                             global_orient = self.body_poses[pose_idx, :3][None],
                                             transl = self.transl[pose_idx][None],
                                             body_pose = self.body_poses[pose_idx, 3: 66][None],
-                                            left_hand_pose = left_hand_pose[None],
-                                            right_hand_pose = right_hand_pose[None]
+                                            # left_hand_pose = left_hand_pose[None],
+                                            # right_hand_pose = right_hand_pose[None]
                                             )
 
         # live_smpl_trimesh = trimesh.Trimesh(vertices = live_smpl.vertices[0].cpu().numpy(), faces = self.smpl_model.faces, process = False)
@@ -392,8 +392,8 @@ class PoseDataset(Dataset):
                                             global_orient = self.body_poses[pose_idx, :3][None],
                                             transl = self.transl[pose_idx][None],
                                             body_pose = self.body_poses[pose_idx, 3: 66][None],
-                                            left_hand_pose = left_hand_pose[None],
-                                            right_hand_pose = right_hand_pose[None]
+                                            # left_hand_pose = left_hand_pose[None],
+                                            # right_hand_pose = right_hand_pose[None]
                                             )
 
         live_smpl_woRoot = self.smpl_model.forward(betas = self.smpl_shape[None],
@@ -549,7 +549,7 @@ class PoseDataset(Dataset):
 
     @staticmethod
     def gen_uv(img_w, img_h):
-        x, y = np.meshgrid(np.linspace(0, img_w - 1, img_w, dtype = np.int),
-                           np.linspace(0, img_h - 1, img_h, dtype = np.int))
+        x, y = np.meshgrid(np.linspace(0, img_w - 1, img_w, dtype = np.int64),
+                           np.linspace(0, img_h - 1, img_h, dtype = np.int64))
         uv = np.stack([x, y], axis = -1)
         return uv

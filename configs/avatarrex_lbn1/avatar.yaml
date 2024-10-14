@@ -3,7 +3,7 @@ train:
   dataset: MvRgbDatasetAvatarReX
   data:
     subject_name: avatarrex_lbn1
-    data_dir: Z:/Data/MultiviewRGB/avatarrex/lbn1
+    data_dir: ../data/multiviewRGC/avatarrex/lbn1
     frame_range: &id001
     - 0
     - 1901
@@ -32,23 +32,23 @@ train:
 test:
   dataset: MvRgbDatasetAvatarReX
   data:
-    data_dir: Z:/Data/MultiviewRGB/avatarrex/lbn1
+    data_dir: ../data/multiviewRGC/avatarrex/lbn1
     frame_range: *id001
     subject_name: avatarrex_lbn1
   pose_data:
 #    data_path: Z:/Data/Pose/thuman4/pose_00.npz
 #    frame_range: [2000, 2500]
 #    data_path: Z:/Data/Pose/AMASS/CMU/06/06_13_poses.npz
-    data_path: Z:/Data/Pose/AMASS/CMU/10/10_05_poses.npz
+    data_path: ../data/pose/AMASS/Transitions/mazen_c3d/GUS_kick_stageii.npz
     frame_interval: 4
-  view_setting: moving
+  view_setting: front
   render_view_idx: 18
   global_orient: true
   img_scale: 1.0
-  save_mesh: false
+  save_mesh: true
   render_skeleton: false
   save_tex_map: false
-  save_ply: false
+  save_ply: true
   fix_hand: true
   fix_hand_id: 55
   n_pca: 20

@@ -89,7 +89,7 @@ def render3(
         means2D = means2D,
         shs = shs,
         colors_precomp = colors_precomp,
-        opacities = opacity,
+        opacities =  opacity,
         scales = scales,
         rotations = rotations,
         cov3D_precomp = cov3D_precomp)

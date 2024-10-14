@@ -1,9 +1,14 @@
+import open3d as o3d
 import torch
 import numpy as np
+
+import math
 from utils.sh_utils import RGB2SH, SH2RGB
 from utils.general_utils import inverse_sigmoid
 from plyfile import PlyData, PlyElement
 import os
+
+from utils.visualize_util import calc_front_mv
 
 
 def construct_list_of_attributes(_features_dc, _features_rest, _scaling, _rotation):
@@ -44,7 +49,6 @@ def save_gaussians_as_ply(path, gaussian_vals: dict):
     elements[:] = list(map(tuple, attributes))
     el = PlyElement.describe(elements, 'vertex')
     PlyData([el]).write(path)
-
 
 def load_gaussians_from_ply(path):
     plydata = PlyData.read(path)
