@@ -9,6 +9,11 @@ device = torch.device('cuda:0')
 cano_smpl_pose = np.zeros(75, dtype = np.float32)
 cano_smpl_pose[3+3*1+2] = math.radians(25)
 cano_smpl_pose[3+3*2+2] = math.radians(-25)
+# meshavatar template setting
+# cano_smpl_pose[3+3*1+2] = torch.pi / 6
+# cano_smpl_pose[3+3*2+2] = -torch.pi / 6
+cano_smpl_pose[3+3*1+57] = -torch.pi / 2
+cano_smpl_pose[3+3*1+60] = -torch.pi / 2
 cano_smpl_pose = torch.from_numpy(cano_smpl_pose)
 cano_smpl_transl = cano_smpl_pose[:3]
 cano_smpl_global_orient = cano_smpl_pose[3:6]

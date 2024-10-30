@@ -447,7 +447,8 @@ class AvatarTrainer:
 
         img_factor = self.opt['train'].get('eval_img_factor', 1.0)
         # training data
-        pose_idx, view_idx = self.opt['train'].get('eval_training_ids', (310, 19))
+        # pose_idx, view_idx = self.opt['train'].get('eval_training_ids', (310, 19))
+        pose_idx, view_idx = (np.random.randint(1010), 1)
         intr = self.dataset.intr_mats[view_idx].copy()
         intr[:2] *= img_factor
         item = self.dataset.getitem(0,
@@ -565,6 +566,7 @@ class AvatarTrainer:
         os.makedirs(output_dir + '/live_skeleton', exist_ok = True)
         os.makedirs(output_dir + '/rgb_map', exist_ok = True)
         os.makedirs(output_dir + '/mask_map', exist_ok = True)
+        os.makedirs(output_dir + '/offset_map', exist_ok=True)
 
         geo_renderer = None
         item_0 = self.dataset.getitem(0, training = False)
@@ -750,6 +752,10 @@ class AvatarTrainer:
             rgb_map = (rgb_map * 255).to(torch.uint8).cpu().numpy()
             cv.imwrite(output_dir + '/rgb_map/%08d.jpg' % item['data_idx'], rgb_map)
 
+            offset_map = output['offset_map']
+            offset_map.clip_(0., 1)
+            offset_map = (offset_map * 255).to(torch.uint8).cpu().numpy()
+            cv.imwrite(output_dir + '/offset_map/offset_%08d.jpg' % item['data_idx'], offset_map)
             if 'mask_map' in output:
                 os.makedirs(output_dir + '/mask_map', exist_ok = True)
                 mask_map = output['mask_map'][:, :, 0]

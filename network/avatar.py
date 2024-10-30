@@ -230,6 +230,29 @@ class AvatarNet(nn.Module):
             'pos_map': pos_map
         }
 
+        gaussian_offset_vals = {
+            'positions': cano_pts,
+            'opacity': opacity,
+            'scales': scales,
+            'rotations': rotations,
+            'colors': torch.abs(nonrigid_offset) * 5,
+            'max_sh_degree': self.max_sh_degree
+        }
+        gaussian_offset_vals = self.transform_cano2live(gaussian_offset_vals, items)
+
+        render_offset_ret = render3(
+            gaussian_offset_vals,
+            bg_color,
+            items['extr'],
+            items['intr'],
+            items['img_w'],
+            items['img_h']
+        )
+
+        ret.update({
+            "offset_map":  render_offset_ret['render'].permute(1, 2, 0)
+        })
+
         if not self.training:
             ret.update({
                 'cano_tex_map': color_map,

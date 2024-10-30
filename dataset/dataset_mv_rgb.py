@@ -1,5 +1,7 @@
 import glob
 import os
+import pickle
+
 import numpy as np
 import cv2 as cv
 import torch
@@ -10,7 +12,7 @@ import config
 import utils.nerf_util as nerf_util
 import utils.visualize_util as visualize_util
 import dataset.commons as commons
-
+from PIL import Image
 
 class MvRgbDatasetBase(Dataset):
     @torch.no_grad()
@@ -39,7 +41,7 @@ class MvRgbDatasetBase(Dataset):
         self.load_cam_data()
         self.load_smpl_data()
 
-        self.smpl_model = smplx.SMPLX(model_path = config.PROJ_DIR + '/smpl_files/smplx', gender = 'neutral', use_pca = False, num_pca_comps = 45, flat_hand_mean = True, batch_size = 1)
+        self.smpl_model = smplx.SMPLX(model_path = config.PROJ_DIR + '/smpl_files/smplx', gender = 'neutral', use_pca = True, num_pca_comps = 45, flat_hand_mean = True, batch_size = 1)
 
         pose_list = list(range(self.smpl_data['body_pose'].shape[0]))
         if frame_range is not None:
@@ -124,8 +126,9 @@ class MvRgbDatasetBase(Dataset):
                 body_pose = self.smpl_data['body_pose'][pose_idx][None],
                 jaw_pose = self.smpl_data['jaw_pose'][pose_idx][None],
                 expression = self.smpl_data['expression'][pose_idx][None],
-                left_hand_pose = self.smpl_data['left_hand_pose'][pose_idx][None],
-                right_hand_pose = self.smpl_data['right_hand_pose'][pose_idx][None]
+                # 4d_dress hand pose 4 joints only
+                # left_hand_pose = self.smpl_data['left_hand_pose'][pose_idx][None],
+                # right_hand_pose = self.smpl_data['right_hand_pose'][pose_idx][None]
             )
             cano_smpl = self.smpl_model.forward(
                 betas = self.smpl_data['betas'][0][None],
@@ -248,7 +251,7 @@ class MvRgbDatasetBase(Dataset):
     def load_smpl_data(self):
         """
         Initialize:
-        self.cam_data, a dict including ['body_pose', 'global_orient', 'transl', 'betas', ...]
+        self.smpl_data, a dict including ['body_pose', 'global_orient', 'transl', 'betas', ...]
         """
         smpl_data = np.load(self.data_dir + '/smpl_params.npz', allow_pickle = True)
         smpl_data = dict(smpl_data)
@@ -581,18 +584,8 @@ class MvRgbDataset4DDress(MvRgbDatasetBase):
             load_smpl_nml_map,
             mode
         )
-
         if subject_name is None:
             self.subject_name = os.path.basename(os.path.dirname(self.data_dir))
-    def load_smpl_data(self):
-        """
-        Initialize:
-        self.cam_data, a dict including ['body_pose', 'global_orient', 'transl', 'betas', ...]
-        """
-        smpl_data = np.load(self.data_dir + '/smpl_params.npz', allow_pickle = True)
-        smpl_data = dict(smpl_data)
-        self.smpl_data = {k: torch.from_numpy(v.astype(np.float32)) for k, v in smpl_data.items()}
-
     def load_cam_data(self):
         import csv
         cam_names = []
@@ -600,31 +593,28 @@ class MvRgbDataset4DDress(MvRgbDatasetBase):
         intr_mats = []
         img_widths = []
         img_heights = []
-        with open(self.data_dir + '/4x/calibration.csv', "r", newline = "", encoding = 'utf-8') as fp:
-            reader = csv.DictReader(fp)
-            for row in reader:
-                cam_names.append(row['name'])
-                img_widths.append(int(row['w']))
-                img_heights.append(int(row['h']))
+        with open(os.path.join(self.data_dir, "cameras.pkl"), "rb") as fp:
+            cameras = pickle.load(fp)
+            for cam_name in cameras.keys():
+                cam_names.append(cam_name)
+                camera = cameras[cam_name]
+                img_widths.append(940)
+                img_heights.append(1280)
 
                 extr_mat = np.identity(4, np.float32)
-                extr_mat[:3, :3] = cv.Rodrigues(np.array([float(row['rx']), float(row['ry']), float(row['rz'])], np.float32))[0]
-                extr_mat[:3, 3] = np.array([float(row['tx']), float(row['ty']), float(row['tz'])])
-                extr_mat = np.linalg.inv(extr_mat)
+                extr_mat[:3, :] = camera["extrinsics"]
                 extr_mats.append(extr_mat)
 
-                intr_mat = np.identity(3, np.float32)
-                intr_mat[0, 0] = float(row['fx']) * float(row['w'])
-                intr_mat[0, 2] = float(row['px']) * float(row['w'])
-                intr_mat[1, 1] = float(row['fy']) * float(row['h'])
-                intr_mat[1, 2] = float(row['py']) * float(row['h'])
-                intr_mats.append(intr_mat)
+                intr_mats.append(camera["intrinsics"])
 
         self.cam_names, self.img_widths, self.img_heights, self.extr_mats, self.intr_mats \
             = cam_names, img_widths, img_heights, extr_mats, intr_mats
+        self.view_num = len(self.cam_names)
 
     def load_color_mask_images(self, pose_idx, view_idx):
         cam_name = self.cam_names[view_idx]
-        color_img = cv.imread(self.data_dir + '/4x/rgbs/%s/%s_rgb%06d.jpg' % (cam_name, cam_name, pose_idx), cv.IMREAD_UNCHANGED)
-        mask_img = cv.imread(self.data_dir + '/4x/masks/%s/%s_mask%06d.png' % (cam_name, cam_name, pose_idx), cv.IMREAD_UNCHANGED)
+        color_img = np.asarray(Image.open(os.path.join(self.data_dir, cam_name,
+                                           "images", '%05d.png' % pose_idx)))[:, :, ::-1]
+        mask_img = cv.imread(os.path.join(self.data_dir, cam_name,
+                                           "masks", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
         return color_img, mask_img

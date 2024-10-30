@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import pytorch3d.ops
 import importlib
+import wandb
 
 from base_trainer import BaseTrainer
 import config
@@ -16,9 +17,10 @@ from utils.obj_io import save_mesh_as_ply
 
 
 class TemplateTrainer(BaseTrainer):
-    def __init__(self, opt):
+    def __init__(self, opt, logger):
         super(TemplateTrainer, self).__init__(opt)
         self.iter_num = 15_0000
+        self.log = logger
 
     def update_config_before_epoch(self, epoch_idx):
         self.iter_idx = epoch_idx * self.batch_num
@@ -41,6 +43,7 @@ class TemplateTrainer(BaseTrainer):
                 batch_losses.update({
                     'color_loss_random': color_loss.item()
                 })
+                self.log.log({'color_loss_random': color_loss.item()})
 
             # mask loss
             if 'acc_map' in render_output:
@@ -49,6 +52,7 @@ class TemplateTrainer(BaseTrainer):
                 batch_losses.update({
                     'mask_loss_random': mask_loss.item()
                 })
+                self.log.log({'mask_loss_random': mask_loss.item()})
 
             # eikonal loss
             if 'normal' in render_output:
@@ -57,6 +61,7 @@ class TemplateTrainer(BaseTrainer):
                 batch_losses.update({
                     'eikonal_loss': eikonal_loss.item()
                 })
+                self.log.log({'eikonal_loss': eikonal_loss.item()})
 
         self.zero_grad()
         total_loss.backward()
@@ -149,7 +154,6 @@ class TemplateTrainer(BaseTrainer):
 if __name__ == '__main__':
     torch.manual_seed(31359)
     np.random.seed(31359)
-
     from argparse import ArgumentParser
 
     arg_parser = ArgumentParser()
@@ -157,6 +161,6 @@ if __name__ == '__main__':
     args = arg_parser.parse_args()
 
     config.load_global_opt(args.config_path)
-
-    trainer = TemplateTrainer(config.opt)
+    logger = wandb.init(project='AG-template', config=config.opt)
+    trainer = TemplateTrainer(config.opt, logger=logger)
     trainer.run()
