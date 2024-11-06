@@ -49,7 +49,7 @@ class PoseDataset(Dataset):
             self.dataset_name = 'aist++'
             self.seq_name = data_name
         elif ext == '.npz':
-            potential_datasets = ['thuman4', 'actorshq', 'avatarrex', 'AMASS']
+            potential_datasets = ['thuman4', 'actorshq', 'avatarrex', 'AMASS', '4d_dress']
             for i, potential_dataset in enumerate(potential_datasets):
                 start_pos = data_path.find(potential_dataset)
                 if start_pos == -1:
@@ -61,7 +61,7 @@ class PoseDataset(Dataset):
                 self.seq_name = data_path[start_pos:].replace(self.dataset_name, '').replace('/', '_').replace('\\', '_').replace('.npz', '')
                 break
 
-            if self.dataset_name == 'thuman4' or self.dataset_name == 'actorshq' or self.dataset_name == 'avatarrex':
+            if self.dataset_name == 'thuman4' or self.dataset_name == 'actorshq' or self.dataset_name == 'avatarrex' or self.dataset_name == "4d_dress":
                 smpl_data = np.load(data_path)
                 smpl_data = dict(smpl_data)
             else:  # AMASS dataset
@@ -95,21 +95,31 @@ class PoseDataset(Dataset):
             self.transl = smpl_data['transl']
 
             data_dir = os.path.dirname(data_path)
-            calib_path = os.path.basename(data_path).replace('.npz', '.json').replace('pose', 'calibration')
-            calib_path = data_dir + '/' + calib_path
+            calib_path = data_dir + '/' + "cameras.pkl"
             if os.path.exists(calib_path):
-                cam_data = json.load(open(calib_path, 'r'))
-                self.view_num = len(cam_data)
-                self.extr_mats = []
-                self.cam_names = list(cam_data.keys())
-                for view_idx in range(self.view_num):
-                    extr_mat = np.identity(4, np.float32)
-                    extr_mat[:3, :3] = np.array(cam_data[self.cam_names[view_idx]]['R'], np.float32).reshape(3, 3)
-                    extr_mat[:3, 3] = np.array(cam_data[self.cam_names[view_idx]]['T'], np.float32)
-                    self.extr_mats.append(extr_mat)
-                self.intr_mats = [np.array(cam_data[self.cam_names[view_idx]]['K'], np.float32).reshape(3, 3) for view_idx in range(self.view_num)]
-                self.img_heights = [cam_data[self.cam_names[view_idx]]['imgSize'][1] for view_idx in range(self.view_num)]
-                self.img_widths = [cam_data[self.cam_names[view_idx]]['imgSize'][0] for view_idx in range(self.view_num)]
+                import csv
+                cam_names = []
+                extr_mats = []
+                intr_mats = []
+                img_widths = []
+                img_heights = []
+                with open(calib_path, "rb") as fp:
+                    cameras = pickle.load(fp)
+                    for cam_name in cameras.keys():
+                        cam_names.append(cam_name)
+                        camera = cameras[cam_name]
+                        img_widths.append(940)
+                        img_heights.append(1280)
+
+                        extr_mat = np.identity(4, np.float32)
+                        extr_mat[:3, :] = camera["extrinsics"]
+                        extr_mats.append(extr_mat)
+
+                        intr_mats.append(camera["intrinsics"])
+
+                self.cam_names, self.img_widths, self.img_heights, self.extr_mats, self.intr_mats \
+                    = cam_names, img_widths, img_heights, extr_mats, intr_mats
+                self.view_num = len(self.cam_names)
         else:
             raise AssertionError('Invalid data_path!')
 
