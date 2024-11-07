@@ -448,7 +448,7 @@ class AvatarTrainer:
         img_factor = self.opt['train'].get('eval_img_factor', 1.0)
         # training data
         # pose_idx, view_idx = self.opt['train'].get('eval_training_ids', (310, 19))
-        pose_idx, view_idx = (np.random.randint(1010), 1)
+        pose_idx, view_idx = (np.random.randint(940), 1)
         intr = self.dataset.intr_mats[view_idx].copy()
         intr[:2] *= img_factor
         item = self.dataset.getitem(0,

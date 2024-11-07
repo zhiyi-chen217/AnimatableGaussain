@@ -40,7 +40,7 @@ class MvRgbDatasetBase(Dataset):
 
         self.load_cam_data()
         self.load_smpl_data()
-
+        self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
         self.smpl_model = smplx.SMPLX(model_path = config.PROJ_DIR + '/smpl_files/smplx', gender = 'neutral', use_pca = True, num_pca_comps = 45, flat_hand_mean = True, batch_size = 1)
 
         pose_list = list(range(self.smpl_data['body_pose'].shape[0]))
@@ -147,7 +147,7 @@ class MvRgbDatasetBase(Dataset):
 
         data_item = dict()
         if self.load_smpl_pos_map:
-            smpl_pos_map = cv.imread(self.data_dir + '/smpl_pos_map/%08d.exr' % pose_idx, cv.IMREAD_UNCHANGED)
+            smpl_pos_map = cv.imread(self.data_dir + '/{}/%08d.exr'.format(self.smpl_pos_map) % pose_idx, cv.IMREAD_UNCHANGED)
             pos_map_size = smpl_pos_map.shape[1] // 2
             smpl_pos_map = np.concatenate([smpl_pos_map[:, :pos_map_size], smpl_pos_map[:, pos_map_size:]], 2)
             smpl_pos_map = smpl_pos_map.transpose((2, 0, 1))
@@ -292,11 +292,11 @@ class MvRgbDatasetBase(Dataset):
         from tqdm import tqdm
         import joblib
 
-        if not os.path.exists(self.data_dir + '/smpl_pos_map/pca_%d.ckpt' % n_components):
+        if not os.path.exists(self.data_dir + '/{}/pca_%d.ckpt'.format(self.smpl_pos_map) % n_components):
             pose_conds = []
             mask = None
             for pose_idx in tqdm(self.pose_list, desc = 'Loading position maps...'):
-                pose_map = cv.imread(self.data_dir + '/smpl_pos_map/%08d.exr' % pose_idx, cv.IMREAD_UNCHANGED)
+                pose_map = cv.imread(self.data_dir + '/{}/%08d.exr'.format(self.smpl_pos_map) % pose_idx, cv.IMREAD_UNCHANGED)
                 pose_map = pose_map[:, :pose_map.shape[1] // 2]
                 if mask is None:
                     mask = np.linalg.norm(pose_map, axis = -1) > 1e-6
@@ -305,11 +305,11 @@ class MvRgbDatasetBase(Dataset):
             pose_conds = pose_conds.reshape(pose_conds.shape[0], -1)
             self.pca = PCA(n_components = n_components)
             self.pca.fit(pose_conds)
-            joblib.dump(self.pca, self.data_dir + '/smpl_pos_map/pca_%d.ckpt' % n_components)
+            joblib.dump(self.pca, self.data_dir + '/{}/pca_%d.ckpt'.format(self.smpl_pos_map) % n_components)
             self.pos_map_mask = mask
         else:
-            self.pca = joblib.load(self.data_dir + '/smpl_pos_map/pca_%d.ckpt' % n_components)
-            pose_map = cv.imread(sorted(glob.glob(self.data_dir + '/smpl_pos_map/0*.exr'))[0], cv.IMREAD_UNCHANGED)
+            self.pca = joblib.load(self.data_dir + '/{}/pca_%d.ckpt'.format(self.smpl_pos_map) % n_components)
+            pose_map = cv.imread(sorted(glob.glob(self.data_dir + '/smpl_pos_map{}/0*.exr'.format(self.smpl_pos_map)))[0], cv.IMREAD_UNCHANGED)
             pose_map = pose_map[:, :pose_map.shape[1] // 2]
             self.pos_map_mask = np.linalg.norm(pose_map, axis = -1) > 1e-6
 
@@ -613,8 +613,18 @@ class MvRgbDataset4DDress(MvRgbDatasetBase):
 
     def load_color_mask_images(self, pose_idx, view_idx):
         cam_name = self.cam_names[view_idx]
-        color_img = np.asarray(Image.open(os.path.join(self.data_dir, cam_name,
-                                           "images", '%05d.png' % pose_idx)))[:, :, ::-1]
+        color_img = cv.imread(os.path.join(self.data_dir, cam_name,
+                                           "images", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
+        if color_img is None:
+            from gen_data.preprocess_4ddress import read_all_png_camera, copy_png_to_folder
+            data_dir = "/home/zhiychen/Desktop/snarf/data/4d_dress/"
+            new_data_dir = "/home/zhiychen/Desktop/train_data/multiviewRGC/4d_dress/"
+            takes = [i for i in range(1, 8)]
+            image_list = read_all_png_camera(data_dir, camera=int(cam_name), takes=takes)
+            copy_png_to_folder(new_data_dir, image_list, camera=int(cam_name))
+            color_img = cv.imread(os.path.join(self.data_dir, cam_name,
+                                               "images", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
+
         mask_img = cv.imread(os.path.join(self.data_dir, cam_name,
                                            "masks", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
         return color_img, mask_img

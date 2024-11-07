@@ -17,18 +17,23 @@ class AvatarNet(nn.Module):
     def __init__(self, opt):
         super(AvatarNet, self).__init__()
         self.opt = opt
-
+        self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
         self.random_style = opt.get('random_style', False)
         self.with_viewdirs = opt.get('with_viewdirs', True)
 
         # init canonical gausssian model
         self.max_sh_degree = 0
         self.cano_gaussian_model = GaussianModel(sh_degree = self.max_sh_degree)
-        cano_smpl_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'.format(opt.get("smpl_pos_map", "smpl_pos_map")), cv.IMREAD_UNCHANGED)
+        cano_smpl_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'
+                                  .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
         self.cano_smpl_map = torch.from_numpy(cano_smpl_map).to(torch.float32).to(config.device)
         self.cano_smpl_mask = torch.linalg.norm(self.cano_smpl_map, dim = -1) > 0.
+        # cano_tightness_map = cv.imread(config.opt['train']['data']['data_dir'] + '/smpl_pos_map/cano_smpl_t_map.exr',
+        #                           cv.IMREAD_UNCHANGED)
+        # self.cano_tightness_map = torch.from_numpy(cano_tightness_map).to(torch.float32).to(config.device)
         self.init_points = self.cano_smpl_map[self.cano_smpl_mask]
-        self.lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'.format(opt.get("smpl_pos_map", "smpl_pos_map")))).to(torch.float32).to(config.device)
+        self.lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'
+                                            .format(self.smpl_pos_map))).to(torch.float32).to(config.device)
         self.cano_gaussian_model.create_from_pcd(self.init_points, torch.rand_like(self.init_points), spatial_lr_scale = 2.5)
 
         self.color_net = DualStyleUNet(inp_size = 512, inp_ch = 3, out_ch = 3, out_size = 1024, style_dim = 512, n_mlp = 2)
@@ -40,7 +45,8 @@ class AvatarNet(nn.Module):
         self.other_style = torch.ones([1, self.other_net.style_dim], dtype=torch.float32, device=config.device) / np.sqrt(self.other_net.style_dim)
 
         if self.with_viewdirs:
-            cano_nml_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_nml_map.exr'.format(opt.get("smpl_pos_map", "smpl_pos_map"), cv.IMREAD_UNCHANGED)
+            cano_nml_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_nml_map.exr'
+                                     .format(self.smpl_pos_map, cv.IMREAD_UNCHANGED))
             self.cano_nml_map = torch.from_numpy(cano_nml_map).to(torch.float32).to(config.device)
             self.cano_nmls = self.cano_nml_map[self.cano_smpl_mask]
             self.viewdir_net = nn.Sequential(
@@ -58,7 +64,8 @@ class AvatarNet(nn.Module):
         self.hand_mask = torch.logical_or(self.hand_mask, lbs_argmax == 21)
         self.hand_mask = torch.logical_or(self.hand_mask, lbs_argmax >= 25)
 
-        pose_map_paths = sorted(glob.glob(config.opt['train']['data']['data_dir'] + '/{}/%08d.exr'.format(opt.get("smpl_pos_map", "smpl_pos_map") % config.opt['test']['fix_hand_id']))
+        pose_map_paths = sorted(glob.glob(config.opt['train']['data']['data_dir'] + '/{}/%08d.exr'
+                                          .format(self.smpl_pos_map) % config.opt['test']['fix_hand_id']))
         smpl_pos_map = cv.imread(pose_map_paths[0], cv.IMREAD_UNCHANGED)
         pos_map_size = smpl_pos_map.shape[1] // 2
         smpl_pos_map = np.concatenate([smpl_pos_map[:, :pos_map_size], smpl_pos_map[:, pos_map_size:]], 2)
@@ -94,8 +101,8 @@ class AvatarNet(nn.Module):
         position_map, _ = self.position_net([self.position_style], pose_map[None], randomize_noise = False)
         front_position_map, back_position_map = torch.split(position_map, [3, 3], 1)
         position_map = torch.cat([front_position_map, back_position_map], 3)[0].permute(1, 2, 0)
+        # delta_position = self.cano_tightness_map[self.cano_smpl_mask] * position_map[self.cano_smpl_mask]
         delta_position = 0.05 * position_map[self.cano_smpl_mask]
-        # delta_position = position_map[self.cano_smpl_mask]
 
         positions = delta_position + self.cano_gaussian_model.get_xyz
         if return_map:
