@@ -41,7 +41,7 @@ class MvRgbDatasetBase(Dataset):
         self.load_cam_data()
         self.load_smpl_data()
         self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
-        self.smpl_model = smplx.SMPLX(model_path = config.PROJ_DIR + '/smpl_files/smplx', gender = 'neutral', use_pca = True, num_pca_comps = 45, flat_hand_mean = True, batch_size = 1)
+        self.smpl_model = smplx.SMPLX(model_path = config.PROJ_DIR + '/smpl_files/smplx', gender = 'female', use_pca = True, num_pca_comps = 12, flat_hand_mean = True, batch_size = 1)
 
         pose_list = list(range(self.smpl_data['body_pose'].shape[0]))
         if frame_range is not None:
@@ -126,9 +126,8 @@ class MvRgbDatasetBase(Dataset):
                 body_pose = self.smpl_data['body_pose'][pose_idx][None],
                 jaw_pose = self.smpl_data['jaw_pose'][pose_idx][None],
                 expression = self.smpl_data['expression'][pose_idx][None],
-                # 4d_dress hand pose 4 joints only
-                # left_hand_pose = self.smpl_data['left_hand_pose'][pose_idx][None],
-                # right_hand_pose = self.smpl_data['right_hand_pose'][pose_idx][None]
+                left_hand_pose = self.smpl_data['left_hand_pose'][pose_idx][None],
+                right_hand_pose = self.smpl_data['right_hand_pose'][pose_idx][None]
             )
             cano_smpl = self.smpl_model.forward(
                 betas = self.smpl_data['betas'][0][None],
@@ -143,6 +142,8 @@ class MvRgbDatasetBase(Dataset):
                 body_pose = self.smpl_data['body_pose'][pose_idx][None],
                 jaw_pose = self.smpl_data['jaw_pose'][pose_idx][None],
                 expression = self.smpl_data['expression'][pose_idx][None],
+                left_hand_pose=self.smpl_data['left_hand_pose'][pose_idx][None],
+                right_hand_pose=self.smpl_data['right_hand_pose'][pose_idx][None]
             )
 
         data_item = dict()
@@ -619,7 +620,7 @@ class MvRgbDataset4DDress(MvRgbDatasetBase):
             from gen_data.preprocess_4ddress import read_all_png_camera, copy_png_to_folder
             data_dir = "/home/zhiychen/Desktop/snarf/data/4d_dress/"
             new_data_dir = "/home/zhiychen/Desktop/train_data/multiviewRGC/4d_dress/"
-            takes = [i for i in range(1, 8)]
+            takes = [i for i in range(11, 18)]
             image_list = read_all_png_camera(data_dir, camera=int(cam_name), takes=takes)
             copy_png_to_folder(new_data_dir, image_list, camera=int(cam_name))
             color_img = cv.imread(os.path.join(self.data_dir, cam_name,
