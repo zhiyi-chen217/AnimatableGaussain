@@ -6,14 +6,14 @@ import numpy as np
 
 
 SUBJECT = 185
-CAMERA = 76
-TAKES = [i for i in range(8, 10)]
+CAMERA = 4
+TAKES = [i for i in range(1, 8)]
 LAYER = "Inner"
-def read_all_png_camera(data_dir, png_type="images"):
+def read_all_png_camera(data_dir, png_type="images", takes=TAKES, camera=CAMERA):
     png_list = []
-    for take in TAKES:
+    for take in takes:
         png_list += glob.glob(
-            os.path.join(data_dir, '%05d' % SUBJECT, LAYER, f'Take{take}', "Capture", '%04d' % CAMERA, png_type, '*.png'),
+            os.path.join(data_dir, '%05d' % SUBJECT, LAYER, f'Take{take}', "Capture", '%04d' % camera, png_type, '*.png'),
             recursive=True)
     png_list.sort()
     return png_list
@@ -25,11 +25,11 @@ def read_all_pose(data_dir):
             recursive=True)
     pose_list.sort()
     return pose_list
-def copy_png_to_folder(new_data_dir, png_list, png_type="images"):
-    if not os.path.exists(os.path.join(new_data_dir, '%05d' % SUBJECT, LAYER, '%04d' % CAMERA, png_type)):
-        os.makedirs(os.path.join(new_data_dir, '%05d' % SUBJECT, LAYER, '%04d' % CAMERA, png_type))
+def copy_png_to_folder(new_data_dir, png_list, png_type="images", camera=CAMERA):
+    if not os.path.exists(os.path.join(new_data_dir, '%05d' % SUBJECT, LAYER, '%04d' % camera, png_type)):
+        os.makedirs(os.path.join(new_data_dir, '%05d' % SUBJECT, LAYER, '%04d' % camera, png_type))
     for ind in range(len(png_list)):
-        new_path = os.path.join(new_data_dir, '%05d' % SUBJECT, LAYER, '%04d' % CAMERA, png_type, f'{ind:05d}.png')
+        new_path = os.path.join(new_data_dir, '%05d' % SUBJECT, LAYER, '%04d' % camera, png_type, f'{ind:05d}.png')
         shutil.copy(png_list[ind], new_path)
 
 def copy_pose_to_folder(new_data_dir, pose_list):
@@ -69,12 +69,12 @@ def combine_pose_to_npz(new_data_dir):
 
 if __name__ == '__main__':
     data_dir = "/home/zhiychen/Desktop/snarf/data/4d_dress/"
-    new_data_dir = "/home/zhiychen/Desktop/train_data/multiviewRGC/4d_dress/"
+    new_data_dir = "/home/zhiychen/Desktop/test_data/multiviewRGC/4d_dress/"
     image_list = read_all_png_camera(data_dir)
     mask_list = read_all_png_camera(data_dir, png_type="masks")
     pose_list = read_all_pose(data_dir)
-    # copy_png_to_folder(new_data_dir, image_list)
-    # copy_png_to_folder(new_data_dir, mask_list, png_type="masks")
+    copy_png_to_folder(new_data_dir, image_list)
+    copy_png_to_folder(new_data_dir, mask_list, png_type="masks")
     # copy_pose_to_folder(new_data_dir, pose_list)
-    combine_pose_to_npz(new_data_dir)
+    # combine_pose_to_npz(new_data_dir)
     print("end")

@@ -537,7 +537,7 @@ class AvatarTrainer:
             dataset_name = testing_dataset.dataset_name
             seq_name = testing_dataset.seq_name
         else:
-            testing_dataset = MvRgbDataset(**self.opt['test']['data'], training = False)
+            testing_dataset = MvRgbDataset(**self.opt['test']['data'], training = False, load_smpl_pos_map = True)
             dataset_name = 'training'
             seq_name = ''
 
@@ -550,7 +550,7 @@ class AvatarTrainer:
         if output_dir is None:
             view_setting = config.opt['test'].get('view_setting', 'free')
             if view_setting == 'camera':
-                view_folder = 'cam_%03d' % config.opt['test']['render_view_idx']
+                view_folder = 'cam_%04d' % config.opt['test']['render_view_idx']
             else:
                 view_folder = view_setting + '_view'
             exp_name = os.path.basename(os.path.dirname(self.opt['test']['prev_ckpt']))
