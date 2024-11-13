@@ -28,9 +28,10 @@ class AvatarNet(nn.Module):
                                   .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
         self.cano_smpl_map = torch.from_numpy(cano_smpl_map).to(torch.float32).to(config.device)
         self.cano_smpl_mask = torch.linalg.norm(self.cano_smpl_map, dim = -1) > 0.
-        # cano_tightness_map = cv.imread(config.opt['train']['data']['data_dir'] + '/smpl_pos_map/cano_smpl_t_map.exr',
-        #                           cv.IMREAD_UNCHANGED)
-        # self.cano_tightness_map = torch.from_numpy(cano_tightness_map).to(torch.float32).to(config.device)
+        if opt.get("offset_mode", "tightness") == "tightness":
+            cano_tightness_map = cv.imread(config.opt['train']['data']['data_dir'] + '/smpl_pos_map/cano_smpl_t_map.exr',
+                                      cv.IMREAD_UNCHANGED)
+            self.cano_tightness_map = torch.from_numpy(cano_tightness_map).to(torch.float32).to(config.device)
         self.init_points = self.cano_smpl_map[self.cano_smpl_mask]
         self.lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'
                                             .format(self.smpl_pos_map))).to(torch.float32).to(config.device)
@@ -101,8 +102,13 @@ class AvatarNet(nn.Module):
         position_map, _ = self.position_net([self.position_style], pose_map[None], randomize_noise = False)
         front_position_map, back_position_map = torch.split(position_map, [3, 3], 1)
         position_map = torch.cat([front_position_map, back_position_map], 3)[0].permute(1, 2, 0)
-        # delta_position = self.cano_tightness_map[self.cano_smpl_mask] * position_map[self.cano_smpl_mask]
-        delta_position = 0.05 * position_map[self.cano_smpl_mask]
+        if (self.opt.get("offset_mode")) == "tightness":
+            self.cano_tightness_map[self.cano_smpl_mask] *= 0.05/self.cano_tightness_map[self.cano_smpl_mask].mean()
+            delta_position = self.cano_tightness_map[self.cano_smpl_mask] * position_map[self.cano_smpl_mask]
+        elif self.opt.get("offset_mode") == "no_scale":
+            delta_position = position_map[self.cano_smpl_mask]
+        else:
+            delta_position = 0.05 * position_map[self.cano_smpl_mask]
 
         positions = delta_position + self.cano_gaussian_model.get_xyz
         if return_map:
