@@ -29,7 +29,8 @@ class AvatarNet(nn.Module):
         self.cano_smpl_map = torch.from_numpy(cano_smpl_map).to(torch.float32).to(config.device)
         self.cano_smpl_mask = torch.linalg.norm(self.cano_smpl_map, dim = -1) > 0.
         if opt.get("offset_mode", "tightness") == "tightness":
-            cano_tightness_map = cv.imread(config.opt['train']['data']['data_dir'] + '/smpl_pos_map/cano_smpl_t_map.exr',
+            cano_tightness_map = cv.imread(config.opt['train']['data']['data_dir']
+                                           + '/{}/cano_smpl_t_map.exr'.format(self.smpl_pos_map),
                                       cv.IMREAD_UNCHANGED)
             self.cano_tightness_map = torch.from_numpy(cano_tightness_map).to(torch.float32).to(config.device)
         self.init_points = self.cano_smpl_map[self.cano_smpl_mask]
