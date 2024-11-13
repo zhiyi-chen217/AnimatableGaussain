@@ -473,6 +473,7 @@ class AvatarTrainer:
         rgb_map = gs_render['rgb_map']
         rgb_map.clip_(0., 1.)
         rgb_map = (rgb_map.cpu().numpy() * 255).astype(np.uint8)
+        
         # cv.imshow('rgb_map', rgb_map.cpu().numpy())
         # cv.waitKey(0)
         if not pretraining:
@@ -483,6 +484,7 @@ class AvatarTrainer:
         if gt_image is not None:
             gt_image = cv.resize(gt_image, (0, 0), fx = img_factor, fy = img_factor)
             rgb_map = np.concatenate([rgb_map, gt_image], 1)
+        self.logger.log({"train_rgb_1": rgb_map})
         os.makedirs(output_dir, exist_ok = True)
         cv.imwrite(output_dir + '/iter_%d.jpg' % self.iter_idx, rgb_map)
         if eval_cano_pts:
@@ -520,6 +522,7 @@ class AvatarTrainer:
         if gt_image is not None:
             gt_image = cv.resize(gt_image, (0, 0), fx = img_factor, fy = img_factor)
             rgb_map = np.concatenate([rgb_map, gt_image], 1)
+        self.logger.log({"train_rgb_2": rgb_map})
         os.makedirs(output_dir, exist_ok = True)
         cv.imwrite(output_dir + '/iter_%d.jpg' % self.iter_idx, rgb_map)
         if eval_cano_pts:
