@@ -16,7 +16,7 @@ import trimesh
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import importlib
-
+import wandb
 import config
 from network.lpips import LPIPS
 from dataset.dataset_pose import PoseDataset
@@ -55,7 +55,7 @@ class AvatarTrainer:
         self.bg_color_cuda = torch.from_numpy(np.asarray(self.bg_color)).to(torch.float32).to(config.device)
         self.loss_weight = self.opt['train']['loss_weight']
         self.finetune_color = self.opt['train']['finetune_color']
-
+        self.logger = wandb.init(project='AG-avatar', config=config.opt)
         print('# Parameter number of AvatarNet is %d' % (sum([p.numel() for p in self.avatar_net.parameters()])))
 
     def update_lr(self):
@@ -210,6 +210,7 @@ class AvatarTrainer:
             batch_losses.update({
                 'l1_loss': l1_loss.item()
             })
+            self.logger.log({'l1_loss': l1_loss.item()})
 
         if self.loss_weight.get('mask', 0.) and 'mask_map' in render_output:
             rendered_mask = render_output['mask_map'].squeeze(-1) * boundary_mask_img
@@ -223,6 +224,7 @@ class AvatarTrainer:
             batch_losses.update({
                 'mask_loss': mask_loss.item()
             })
+            self.logger.log({'mask_loss': mask_loss.item()})
 
         if self.loss_weight['lpips'] > 0.:
             # crop images
@@ -236,14 +238,15 @@ class AvatarTrainer:
             batch_losses.update({
                 'lpips_loss': lpips_loss.item()
             })
+            self.logger.log({'lpips_loss': lpips_loss.item()})
 
-        # if self.loss_weight['offset'] > 0.:
-        if True:
+        if self.loss_weight['offset'] > 0.:
             offset_loss = torch.linalg.norm(offset, dim = -1).mean()
             total_loss += self.loss_weight['offset'] * offset_loss
             batch_losses.update({
                 'offset_loss': offset_loss.item()
             })
+            self.logger.log({'offset_loss': offset_loss.item()})
 
         # forward_end.record()
 
@@ -309,6 +312,7 @@ class AvatarTrainer:
                         smooth_losses[key] /= smooth_count
                         writer.add_scalar('%s/Iter' % key, smooth_losses[key], self.iter_idx)
                         log_info = log_info + ('%s: %f, ' % (key, smooth_losses[key]))
+                        self.logger.log({key:  smooth_losses[key]})
                         smooth_losses[key] = 0.
                     smooth_count = 0
                     print(log_info)
@@ -403,6 +407,7 @@ class AvatarTrainer:
                         smooth_losses[key] /= smooth_count
                         writer.add_scalar('%s/Iter' % key, smooth_losses[key], self.iter_idx)
                         log_info = log_info + ('%s: %f, ' % (key, smooth_losses[key]))
+                        self.logger.log({key:  smooth_losses[key]})
                         smooth_losses[key] = 0.
                     smooth_count = 0
                     print(log_info)
@@ -448,7 +453,7 @@ class AvatarTrainer:
         img_factor = self.opt['train'].get('eval_img_factor', 1.0)
         # training data
         # pose_idx, view_idx = self.opt['train'].get('eval_training_ids', (310, 19))
-        pose_idx, view_idx = (np.random.randint(940), 1)
+        pose_idx, view_idx = (np.random.randint(600), 1)
         intr = self.dataset.intr_mats[view_idx].copy()
         intr[:2] *= img_factor
         item = self.dataset.getitem(0,
