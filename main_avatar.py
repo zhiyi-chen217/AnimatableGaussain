@@ -1,4 +1,5 @@
 import os
+
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 # os.environ['TORCH_USE_CUDA_DSA'] = '1'
 os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
@@ -56,6 +57,7 @@ class AvatarTrainer:
         self.loss_weight = self.opt['train']['loss_weight']
         self.finetune_color = self.opt['train']['finetune_color']
         self.logger = wandb.init(project='AG-avatar', config=config.opt)
+        self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
         print('# Parameter number of AvatarNet is %d' % (sum([p.numel() for p in self.avatar_net.parameters()])))
 
     def update_lr(self):
@@ -247,6 +249,26 @@ class AvatarTrainer:
                 'offset_loss': offset_loss.item()
             })
             self.logger.log({'offset_loss': offset_loss.item()})
+
+        if self.loss_weight['laplacian'] > 0.:
+            gaussian_offset = render_output["offset"] * 1000
+            # read required data, convert and send to device
+            neighbor_idx = np.load(config.opt['train']['data']['data_dir'] + '/{}/neighbor_idx.npy'
+                                      .format(self.smpl_pos_map))
+            self.neighbor_idx = torch.from_numpy(neighbor_idx).to(torch.int64).to(config.device)
+            neighbor_weights = np.load(config.opt['train']['data']['data_dir'] + '/{}/neighbor_weights.npy'
+                                      .format(self.smpl_pos_map))
+            self.neighbor_weights = torch.from_numpy(neighbor_weights).to(torch.float32).to(config.device)
+            with_neighbor = np.load(config.opt['train']['data']['data_dir'] + '/{}/with_neighbor.npy'
+                                       .format(self.smpl_pos_map))
+            self.with_neighbor = torch.from_numpy(with_neighbor).to(torch.bool).to(config.device)
+            lap_out = gaussian_offset + (gaussian_offset[self.neighbor_idx, :] * self.neighbor_weights[:, :, None]).sum(1)
+            laplacian_loss = (lap_out ** 2).sum(1)[self.with_neighbor].mean()
+            total_loss += self.loss_weight['laplacian'] * laplacian_loss
+            batch_losses.update({
+                'laplacian_loss': laplacian_loss.item()
+            })
+            self.logger.log({'laplacian_loss': laplacian_loss.item() })
 
         # forward_end.record()
 
