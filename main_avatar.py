@@ -251,7 +251,7 @@ class AvatarTrainer:
             self.logger.log({'offset_loss': offset_loss.item()})
 
         if self.loss_weight['laplacian'] > 0.:
-            gaussian_pos = render_output["pos_map"]
+            gaussian_offset = render_output["offset"] * 1000
             # read required data, convert and send to device
             neighbor_idx = np.load(config.opt['train']['data']['data_dir'] + '/{}/neighbor_idx.npy'
                                       .format(self.smpl_pos_map))
@@ -259,16 +259,11 @@ class AvatarTrainer:
             neighbor_weights = np.load(config.opt['train']['data']['data_dir'] + '/{}/neighbor_weights.npy'
                                       .format(self.smpl_pos_map))
             self.neighbor_weights = torch.from_numpy(neighbor_weights).to(torch.float32).to(config.device)
-            cano_smpl_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'
-                                      .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
-            self.cano_smpl_map = torch.from_numpy(cano_smpl_map).to(torch.float32).to(config.device)
-            self.cano_smpl_mask = torch.linalg.norm(self.cano_smpl_map, dim=-1) > 0.
             with_neighbor = np.load(config.opt['train']['data']['data_dir'] + '/{}/with_neighbor.npy'
                                        .format(self.smpl_pos_map))
             self.with_neighbor = torch.from_numpy(with_neighbor).to(torch.bool).to(config.device)
-            gaussian_pos = gaussian_pos[self.cano_smpl_mask]
-            lap_out = gaussian_pos + (gaussian_pos[self.neighbor_idx, :] * self.neighbor_weights[:, :, None]).sum(1)
-            laplacian_loss = (lap_out ** 2).sum(1)[self.with_neighbor].mean() * 10000
+            lap_out = gaussian_offset + (gaussian_offset[self.neighbor_idx, :] * self.neighbor_weights[:, :, None]).sum(1)
+            laplacian_loss = (lap_out ** 2).sum(1)[self.with_neighbor].mean()
             total_loss += self.loss_weight['laplacian'] * laplacian_loss
             batch_losses.update({
                 'laplacian_loss': laplacian_loss.item()
