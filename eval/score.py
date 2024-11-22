@@ -104,5 +104,5 @@ def compute_psnr(src, tar):
 
 
 def compute_ssim(src, tar):
-    ssim = skimage.metrics.structural_similarity(src, tar, multichannel = True, data_range = 1)
+    ssim = skimage.metrics.structural_similarity(src, tar, multichannel = True, channel_axis=2, data_range = 1)
     return ssim

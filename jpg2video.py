@@ -1,8 +1,8 @@
 import cv2
 import os
 # Define the directory containing images
-image_folder = '/home/zhiychen/Desktop/AnimatableGaussians/test_results/185/Outer/AMASS__Transitions_mazen_c3d_dance_push_stageii_front_view/batch_064000/vanilla/rgb_map'
-video_name = 'animation_coat.mp4'
+image_folder = '/home/zhiychen/Desktop/AnimatableGaussians/test_results/185/Outer_precise_no_scale/training__cam_0000/batch_066360/vanilla/rgb_map'
+video_name = 'animation_precise_no_scale.mp4'
 # Get all the image files in the folder
 images = [img for img in os.listdir(image_folder) if img.endswith(".jpg")]
 # images = [img for img in os.listdir(image_folder) if img.endswith(“normal.png”) or img.endswith(“.jpg”)]
