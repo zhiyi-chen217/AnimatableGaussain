@@ -14,10 +14,13 @@ from gaussians.gaussian_renderer import render3
 
 
 class AvatarNet(nn.Module):
-    def __init__(self, opt):
+    def __init__(self, opt, layer=None):
         super(AvatarNet, self).__init__()
         self.opt = opt
-        self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
+        if layer is None:
+            self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
+        else:
+            self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map") + f"_{layer}"
         self.random_style = opt.get('random_style', False)
         self.with_viewdirs = opt.get('with_viewdirs', True)
 
@@ -104,7 +107,6 @@ class AvatarNet(nn.Module):
         front_position_map, back_position_map = torch.split(position_map, [3, 3], 1)
         position_map = torch.cat([front_position_map, back_position_map], 3)[0].permute(1, 2, 0)
         if (self.opt.get("offset_mode")) == "tightness":
-            self.cano_tightness_map[self.cano_smpl_mask] *= 0.05/self.cano_tightness_map[self.cano_smpl_mask].mean()
             delta_position = self.cano_tightness_map[self.cano_smpl_mask] * position_map[self.cano_smpl_mask]
         elif self.opt.get("offset_mode") == "no_scale":
             delta_position = position_map[self.cano_smpl_mask]

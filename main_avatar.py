@@ -44,9 +44,11 @@ class AvatarTrainer:
         self.lr_init = float(self.opt['train'].get('lr_init', 5e-4))
 
         avatar_module = self.opt['model'].get('module', 'network.avatar')
+        avatar_network = self.opt['model'].get('network', 'AvatarNet')
         print('Import AvatarNet from %s' % avatar_module)
-        AvatarNet = importlib.import_module(avatar_module).AvatarNet
-        self.avatar_net = AvatarNet(self.opt['model']).to(config.device)
+        AvatarNet = importlib.import_module(avatar_module).__getattribute__(avatar_network)
+        self.avatar_net = AvatarNet(self.opt['model'],
+                                    self.opt['train']['data'].get('layers', None)).to(config.device)
         self.optm = torch.optim.Adam(
             self.avatar_net.parameters(), lr = self.lr_init
         )
@@ -131,7 +133,12 @@ class AvatarTrainer:
         l1_loss = torch.nn.L1Loss()
 
         items = net_util.delete_batch_idx(items)
-        pose_map = items['smpl_pos_map'][:3]
+        if isinstance(items["smpl_pos_map"], dict):
+            pose_map = {}
+            for k, v in items["smpl_pos_map"].items():
+                pose_map[k] = v[0, :3]
+        else:
+            pose_map = items["smpl_pos_map"][:3]
 
         position_loss = l1_loss(self.avatar_net.get_positions(pose_map), self.avatar_net.cano_gaussian_model.get_xyz)
         total_loss += position_loss
