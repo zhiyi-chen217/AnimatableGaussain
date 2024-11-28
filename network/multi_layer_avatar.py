@@ -21,6 +21,7 @@ class MultiGaussianModel:
         self.layers = layers
         for layer in layers:
             self.cano_gaussian_dict[layer] = model_dict[layer].cano_gaussian_model
+        
 
     @property
     def get_scaling(self):
@@ -43,7 +44,12 @@ class MultiGaussianModel:
             xyz_l.append(self.cano_gaussian_dict[layer].get_xyz)
         return torch.concat(xyz_l, dim=0)
 
-
+    @property
+    def get_opacity(self):
+        opacity_l = []
+        for layer in self.layers:
+            opacity_l.append(self.cano_gaussian_dict[layer].get_opacity)
+        return torch.concat(opacity_l, dim=0)
 
 
 class MultiLAvatarNet(nn.Module):
@@ -52,11 +58,26 @@ class MultiLAvatarNet(nn.Module):
         self.layers = layers
         self.layers_nn = nn.ModuleDict()
         self.init_points = []
+        self.lbs = []
         for layer in layers:
             self.layers_nn[layer] = AvatarNet(opt, layer)
             self.init_points.append(self.layers_nn[layer].cano_smpl_map[self.layers_nn[layer].cano_smpl_mask])
+            self.lbs.append(self.layers_nn[layer].lbs)
         self.init_points = torch.concat(self.init_points, dim=0)
+        self.lbs = torch.concat(self.lbs, dim=0)
+        self.max_sh_degree = 0
         self.cano_gaussian_model = MultiGaussianModel(self.layers_nn, self.layers)
+
+    
+    def transform_cano2live(self, gaussian_vals, items):
+        pt_mats = torch.einsum('nj,jxy->nxy', self.lbs, items['cano2live_jnt_mats'])
+        gaussian_vals['positions'] = torch.einsum('nxy,ny->nx', pt_mats[..., :3, :3], gaussian_vals['positions']) + pt_mats[..., :3, 3]
+        rot_mats = pytorch3d.transforms.quaternion_to_matrix(gaussian_vals['rotations'])
+        rot_mats = torch.einsum('nxy,nyz->nxz', pt_mats[..., :3, :3], rot_mats)
+        gaussian_vals['rotations'] = pytorch3d.transforms.matrix_to_quaternion(rot_mats)
+
+        return gaussian_vals
+     
 
     def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False):
         """
@@ -65,13 +86,14 @@ class MultiLAvatarNet(nn.Module):
         bg_color = torch.from_numpy(np.asarray(bg_color)).to(torch.float32).to(config.device)
         pose_map = {}
         for layer in self.layers:
-            pose_map_layer = items['smpl_pos_map'][layer][:3]
+            pose_map_layer = items['smpl_pos_map'][layer].squeeze(0)[:3]
             assert not (use_pca and use_vae), "Cannot use both PCA and VAE!"
             if use_pca:
-                pose_map_layer = items[layer]['smpl_pos_map_pca'][:3]
+                pose_map_layer = items[layer]['smpl_pos_map_pca'].squeeze(0)[:3]
             if use_vae:
-                pose_map_layer = items[layer]['smpl_pos_map_vae'][:3]
+                pose_map_layer = items[layer]['smpl_pos_map_vae'].squeeze(0)[:3]
             pose_map[layer] = pose_map_layer
+        items['smpl_pos_map'] = pose_map
 
 
         cano_pts, pos_map = self.get_positions(pose_map, return_map = True)
@@ -173,7 +195,7 @@ class MultiLAvatarNet(nn.Module):
         colors_l = []
         color_map_l = []
         for layer in self.layers:
-            if self.with_viewdirs:
+            if self.layers_nn[layer].with_viewdirs:
                 front_viewdirs, back_viewdirs = self.layers_nn[layer].get_viewdir_feat(items)
             else:
                 front_viewdirs, back_viewdirs = None, None
