@@ -513,7 +513,7 @@ class AvatarTrainer:
         if gt_image is not None:
             gt_image = cv.resize(gt_image, (0, 0), fx = img_factor, fy = img_factor)
             rgb_map = np.concatenate([rgb_map, gt_image], 1)
-        self.logger.log({"train_rgb_1": rgb_map})
+        self.logger.log({"train_rgb_1": wandb.Image(rgb_map[:,:, ::-1])})
         os.makedirs(output_dir, exist_ok = True)
         cv.imwrite(output_dir + '/iter_%d.jpg' % self.iter_idx, rgb_map)
         if eval_cano_pts:
@@ -551,7 +551,7 @@ class AvatarTrainer:
         if gt_image is not None:
             gt_image = cv.resize(gt_image, (0, 0), fx = img_factor, fy = img_factor)
             rgb_map = np.concatenate([rgb_map, gt_image], 1)
-        self.logger.log({"train_rgb_2": rgb_map})
+        self.logger.log({"train_rgb_2": wandb.Image(rgb_map[:,:, ::-1])})
         os.makedirs(output_dir, exist_ok = True)
         cv.imwrite(output_dir + '/iter_%d.jpg' % self.iter_idx, rgb_map)
         if eval_cano_pts:

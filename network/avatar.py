@@ -31,7 +31,7 @@ class AvatarNet(nn.Module):
                                   .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
         self.cano_smpl_map = torch.from_numpy(cano_smpl_map).to(torch.float32).to(config.device)
         self.cano_smpl_mask = torch.linalg.norm(self.cano_smpl_map, dim = -1) > 0.
-        if opt.get("offset_mode", "tightness") == "tightness":
+        if "tightness" in opt.get("offset_mode", "tightness"):
             cano_tightness_map = cv.imread(config.opt['train']['data']['data_dir']
                                            + '/{}/cano_smpl_t_map.exr'.format(self.smpl_pos_map),
                                       cv.IMREAD_UNCHANGED)
@@ -107,6 +107,9 @@ class AvatarNet(nn.Module):
         front_position_map, back_position_map = torch.split(position_map, [3, 3], 1)
         position_map = torch.cat([front_position_map, back_position_map], 3)[0].permute(1, 2, 0)
         if (self.opt.get("offset_mode")) == "tightness":
+            delta_position = self.cano_tightness_map[self.cano_smpl_mask] * position_map[self.cano_smpl_mask]
+        elif (self.opt.get("offset_mode")) == "tightness_scaled":
+            self.cano_tightness_map[self.cano_smpl_mask] *= 0.05/self.cano_tightness_map[self.cano_smpl_mask].mean()
             delta_position = self.cano_tightness_map[self.cano_smpl_mask] * position_map[self.cano_smpl_mask]
         elif self.opt.get("offset_mode") == "no_scale":
             delta_position = position_map[self.cano_smpl_mask]
