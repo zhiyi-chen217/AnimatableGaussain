@@ -177,7 +177,7 @@ class AvatarNet(nn.Module):
         })
         return live_pos_map
 
-    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False):
+    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
         """
         Note that no batch index in items.
         """

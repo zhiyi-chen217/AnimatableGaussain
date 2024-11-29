@@ -59,6 +59,7 @@ class MultiLAvatarNet(nn.Module):
         self.layers_nn = nn.ModuleDict()
         self.init_points = []
         self.lbs = []
+        self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map") + "_smplx"
         for layer in layers:
             self.layers_nn[layer] = AvatarNet(opt, layer)
             self.init_points.append(self.layers_nn[layer].cano_smpl_map[self.layers_nn[layer].cano_smpl_mask])
@@ -68,18 +69,39 @@ class MultiLAvatarNet(nn.Module):
         self.max_sh_degree = 0
         self.cano_gaussian_model = MultiGaussianModel(self.layers_nn, self.layers)
 
-    
-    def transform_cano2live(self, gaussian_vals, items):
-        pt_mats = torch.einsum('nj,jxy->nxy', self.lbs, items['cano2live_jnt_mats'])
+        # body model
+        self.cano_smpl_body_gaussian_model = GaussianModel(sh_degree=self.max_sh_degree)
+        cano_smpl_body_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'
+                                  .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
+        self.cano_smpl_body_map = torch.from_numpy(cano_smpl_body_map).to(torch.float32).to(config.device)
+        self.cano_smpl_body_mask = torch.linalg.norm(self.cano_smpl_body_map, dim=-1) > 0.
+
+        self.smpl_body_init_points = self.cano_smpl_body_map[self.cano_smpl_body_mask]
+        self.smpl_body_lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'
+                                        .format(self.smpl_pos_map))).to(torch.float32).to(config.device)
+        self.cano_smpl_body_gaussian_model.create_from_pcd(self.smpl_body_init_points,
+                                                           torch.rand_like(self.smpl_body_init_points),
+                                                           spatial_lr_scale=2.5)
+
+    def transform_cano2live(self, gaussian_vals, lbs, items):
+        pt_mats = torch.einsum('nj,jxy->nxy', lbs, items['cano2live_jnt_mats'])
         gaussian_vals['positions'] = torch.einsum('nxy,ny->nx', pt_mats[..., :3, :3], gaussian_vals['positions']) + pt_mats[..., :3, 3]
         rot_mats = pytorch3d.transforms.quaternion_to_matrix(gaussian_vals['rotations'])
         rot_mats = torch.einsum('nxy,nyz->nxz', pt_mats[..., :3, :3], rot_mats)
         gaussian_vals['rotations'] = pytorch3d.transforms.matrix_to_quaternion(rot_mats)
-
         return gaussian_vals
+
+    def get_lbs(self, layers=None):
+        if layers is None:
+            return self.lbs
+        layer_lbs = []
+        for layer in layers:
+            layer_lbs.append(self.layers_nn[layer].lbs)
+        return torch.stack(layer_lbs, dim=0)
+
      
 
-    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False):
+    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
         """
         Note that no batch index in items.
         """
@@ -96,9 +118,9 @@ class MultiLAvatarNet(nn.Module):
         items['smpl_pos_map'] = pose_map
 
 
-        cano_pts, pos_map = self.get_positions(pose_map, return_map = True)
-        opacity, scales, rotations = self.get_others(pose_map)
-        colors, color_map = self.get_colors(pose_map, items)
+        cano_pts, pos_map = self.get_positions(pose_map, return_map = True, layers=layers)
+        opacity, scales, rotations = self.get_others(pose_map, layers=layers)
+        colors, color_map = self.get_colors(pose_map, items, layers=layers)
 
         gaussian_vals = {
             'positions': cano_pts,
@@ -111,7 +133,19 @@ class MultiLAvatarNet(nn.Module):
 
         nonrigid_offset = gaussian_vals['positions'] - self.init_points
 
-        gaussian_vals = self.transform_cano2live(gaussian_vals, items)
+        gaussian_vals = self.transform_cano2live(gaussian_vals, self.get_lbs(layers), items)
+        if with_body:
+            gaussian_body_vals = {
+                'positions': self.cano_smpl_body_gaussian_model.get_xyz,
+                'opacity': self.cano_smpl_body_gaussian_model.get_opacity,
+                'scales': self.cano_smpl_body_gaussian_model.get_scaling,
+                'rotations': self.cano_smpl_body_gaussian_model.get_rotation,
+                'colors': torch.ones(self.cano_smpl_body_gaussian_model.get_xyz.shape),
+                'max_sh_degree': self.max_sh_degree
+            }
+            gaussian_body_vals = self.transform_cano2live(gaussian_body_vals, self.smpl_body_lbs, items)
+            for key in gaussian_vals:
+                gaussian_vals[key] = torch.concat([gaussian_vals[key], gaussian_body_vals[key]], dim=0)
 
         render_ret = render3(
             gaussian_vals,
@@ -161,11 +195,13 @@ class MultiLAvatarNet(nn.Module):
             })
 
         return ret
-    def get_positions(self, pose_map, return_map = False):
+    def get_positions(self, pose_map, return_map = False, layers=None):
+        if layers is None:
+            layers = self.layers
         if return_map:
             positions_l = []
             position_map_l = []
-            for layer in self.layers:
+            for layer in layers:
                 pose_map_layer = pose_map[layer]
                 positions, position_map = self.layers_nn[layer].get_positions(pose_map_layer, return_map)
                 positions_l.append(positions)
@@ -173,28 +209,32 @@ class MultiLAvatarNet(nn.Module):
             return torch.concat(positions_l, dim=0), torch.concat(position_map_l, dim=0)
         else:
             positions_l = []
-            for layer in self.layers:
+            for layer in layers:
                 pose_map_layer = pose_map[layer]
                 positions = self.layers_nn[layer].get_positions(pose_map_layer, return_map)
                 positions_l.append(positions)
 
             return torch.concat(positions_l, dim=0)
 
-    def get_others(self, pose_map):
+    def get_others(self, pose_map, layers=None):
         opacity_l = []
         scales_l = []
         rotations_l = []
-        for layer in self.layers:
+        if layers is None:
+            layers = self.layers
+        for layer in layers:
             opacity, scales, rotations = self.layers_nn[layer].get_others(pose_map[layer])
             opacity_l.append(opacity)
             scales_l.append(scales)
             rotations_l.append(rotations)
         return torch.concat(opacity_l, dim=0), torch.concat(scales_l, dim=0), torch.concat(rotations_l, dim=0)
 
-    def get_colors(self, pose_map, items):
+    def get_colors(self, pose_map, items, layers=None):
         colors_l = []
         color_map_l = []
-        for layer in self.layers:
+        if layers is None:
+            layers = self.layers
+        for layer in layers:
             if self.layers_nn[layer].with_viewdirs:
                 front_viewdirs, back_viewdirs = self.layers_nn[layer].get_viewdir_feat(items)
             else:
