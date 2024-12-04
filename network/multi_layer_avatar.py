@@ -69,19 +69,7 @@ class MultiLAvatarNet(nn.Module):
         self.max_sh_degree = 0
         self.cano_gaussian_model = MultiGaussianModel(self.layers_nn, self.layers)
 
-        # body model
-        self.cano_smpl_body_gaussian_model = GaussianModel(sh_degree=self.max_sh_degree)
-        cano_smpl_body_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'
-                                  .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
-        self.cano_smpl_body_map = torch.from_numpy(cano_smpl_body_map).to(torch.float32).to(config.device)
-        self.cano_smpl_body_mask = torch.linalg.norm(self.cano_smpl_body_map, dim=-1) > 0.
 
-        self.smpl_body_init_points = self.cano_smpl_body_map[self.cano_smpl_body_mask]
-        self.smpl_body_lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'
-                                        .format(self.smpl_pos_map))).to(torch.float32).to(config.device)
-        self.cano_smpl_body_gaussian_model.create_from_pcd(self.smpl_body_init_points,
-                                                           torch.rand_like(self.smpl_body_init_points),
-                                                           spatial_lr_scale=2.5)
 
     def transform_cano2live(self, gaussian_vals, lbs, items):
         pt_mats = torch.einsum('nj,jxy->nxy', lbs, items['cano2live_jnt_mats'])
@@ -99,7 +87,54 @@ class MultiLAvatarNet(nn.Module):
             layer_lbs.append(self.layers_nn[layer].lbs)
         return torch.stack(layer_lbs, dim=0)
 
-     
+    def render_body(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
+        """
+        Note that no batch index in items.
+        """
+        # body model
+        self.cano_smpl_body_gaussian_model = GaussianModel(sh_degree=self.max_sh_degree)
+        cano_smpl_body_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'
+                                       .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
+        self.cano_smpl_body_map = torch.from_numpy(cano_smpl_body_map).to(torch.float32).to(config.device)
+        self.cano_smpl_body_mask = torch.linalg.norm(self.cano_smpl_body_map, dim=-1) > 0.
+
+        self.smpl_body_init_points = self.cano_smpl_body_map[self.cano_smpl_body_mask]
+        self.smpl_body_lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'
+                                                      .format(self.smpl_pos_map))).to(torch.float32).to(config.device)
+        self.cano_smpl_body_gaussian_model.create_from_pcd(self.smpl_body_init_points,
+                                                           torch.rand_like(self.smpl_body_init_points),
+                                                           spatial_lr_scale=2.5)
+        bg_color = torch.from_numpy(np.asarray(bg_color)).to(torch.float32).to(config.device)
+
+        gaussian_body_vals = {
+            'positions': self.cano_smpl_body_gaussian_model.get_xyz,
+            'opacity': self.cano_smpl_body_gaussian_model.get_opacity,
+            'scales': self.cano_smpl_body_gaussian_model.get_scaling,
+            'rotations': self.cano_smpl_body_gaussian_model.get_rotation,
+            'colors': torch.ones(self.cano_smpl_body_gaussian_model.get_xyz.shape),
+            'max_sh_degree': self.max_sh_degree
+        }
+        gaussian_body_vals = self.transform_cano2live(gaussian_body_vals, self.smpl_body_lbs, items)
+
+
+        render_ret = render3(
+            gaussian_body_vals,
+            bg_color,
+            items['extr'],
+            items['intr'],
+            items['img_w'],
+            items['img_h']
+        )
+        rgb_map = render_ret['render'].permute(1, 2, 0)
+        mask_map = render_ret['mask'].permute(1, 2, 0)
+
+        ret = {
+            'rgb_map': rgb_map,
+            'mask_map': mask_map,
+        }
+
+
+        return ret
 
     def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
         """
@@ -134,18 +169,6 @@ class MultiLAvatarNet(nn.Module):
         nonrigid_offset = gaussian_vals['positions'] - self.init_points
 
         gaussian_vals = self.transform_cano2live(gaussian_vals, self.get_lbs(layers), items)
-        if with_body:
-            gaussian_body_vals = {
-                'positions': self.cano_smpl_body_gaussian_model.get_xyz,
-                'opacity': self.cano_smpl_body_gaussian_model.get_opacity,
-                'scales': self.cano_smpl_body_gaussian_model.get_scaling,
-                'rotations': self.cano_smpl_body_gaussian_model.get_rotation,
-                'colors': torch.ones(self.cano_smpl_body_gaussian_model.get_xyz.shape),
-                'max_sh_degree': self.max_sh_degree
-            }
-            gaussian_body_vals = self.transform_cano2live(gaussian_body_vals, self.smpl_body_lbs, items)
-            for key in gaussian_vals:
-                gaussian_vals[key] = torch.concat([gaussian_vals[key], gaussian_body_vals[key]], dim=0)
 
         render_ret = render3(
             gaussian_vals,
