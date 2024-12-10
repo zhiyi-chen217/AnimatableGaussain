@@ -9,7 +9,8 @@ from pytorch3d.renderer import (
     MeshRenderer,
     MeshRasterizer,
     TexturesUV,
-    TexturesVertex
+    TexturesVertex,
+    MeshRendererWithFragments
 )
 from pytorch3d.renderer.mesh.shader import ShaderBase, HardDepthShader, HardPhongShader
 from pytorch3d.renderer.mesh.rasterizer import Fragments
@@ -24,7 +25,7 @@ from pytorch3d.structures import Meshes
 import torch
 import numpy as np
 import cv2 as cv
-
+import trimesh
 
 class VertexAtrriShader(ShaderBase):
     def forward(self, fragments: Fragments, meshes: Meshes, **kwargs) -> torch.Tensor:
@@ -45,7 +46,7 @@ class Renderer:
             blur_radius = 0.0,
             faces_per_pixel = 1,
             bin_size = None,
-            max_faces_per_bin = 50000
+            max_faces_per_bin = 50000,
         )
 
         self.shader_name = shader_name
@@ -58,7 +59,7 @@ class Renderer:
             shader = HardPhongShader(device = device, blend_params = blend_params)
         else:
             raise ValueError('Invalid shader_name')
-        self.renderer = MeshRenderer(
+        self.renderer = MeshRendererWithFragments(
             rasterizer = MeshRasterizer(
                 cameras = None,
                 raster_settings = raster_settings
@@ -116,10 +117,21 @@ class Renderer:
         self.mesh = Meshes([vertices], [faces], textures = textures)
 
     def render(self):
-        img = self.renderer(self.mesh, cameras = self.renderer.rasterizer.cameras)
-        return img[0].cpu().numpy()
+        img, fragments = self.renderer(self.mesh, cameras = self.renderer.rasterizer.cameras)
+        return img[0].cpu().numpy(), fragments.pix_to_face[0].cpu().numpy().squeeze()
 
-
+    def set_mesh(self, mesh, texture_type="normal", colors=None):
+        vertices = torch.tensor(mesh.vertices).to(torch.float32).to(self.device)
+        faces = torch.tensor(mesh.faces).to(torch.float32).to(self.device)
+        if texture_type == "normal":
+            v_normals = trimesh.geometry.mean_vertex_normals(mesh.vertices.shape[0], mesh.faces, mesh.face_normals)
+            v_normals = torch.tensor(v_normals).to(torch.float32).to(self.device)
+            textures = TexturesVertex([v_normals])
+        elif texture_type == "position":
+            textures = TexturesVertex([vertices])
+        elif texture_type == "color":
+            textures = TexturesVertex([torch.tensor(colors[:, :3] / 255).to(torch.float32).to(self.device)])
+        self.mesh = Meshes([vertices], [faces], textures=textures)
 if __name__ == '__main__':
     import trimesh
     import json

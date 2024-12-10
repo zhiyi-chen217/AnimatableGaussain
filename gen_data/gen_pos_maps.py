@@ -6,11 +6,80 @@ import cv2 as cv
 import trimesh
 import yaml
 import tqdm
+from trimesh.graph import neighbors
 
 import smplx
 from network.volume import CanoBlendWeightVolume
-from utils.renderer import Renderer
+from utils.renderer.renderer_pytorch3d import Renderer
 import config
+import pytorch3d.ops as ops
+
+def find_neighbor(pixel_idx, pix_to_face, mask, mesh, x, y):
+    dx_l = [-1, -1, 1, 1]
+    dy_l = [1, -1, 1, -1]
+    cur_face = pix_to_face[x,y]
+    img_h, img_w = pix_to_face.shape
+    neighbors = set({pixel_idx[x, y]})
+    for dx in dx_l:
+        for dy in dy_l:
+            if x+dx < 0 or x+dx >= img_h or y+dy < 0 or y+dy >=img_w or not mask[x+dx, y+dy]:
+                continue
+            if set(mesh.faces[pix_to_face[x+dx,y+dy]]).intersection(mesh.faces[cur_face]):
+                neighbors.add(pixel_idx[x+dx,y+dy])
+    return neighbors
+
+def find_face(pixel_idx, mask, x, y):
+    img_h, img_w = pixel_idx.shape
+
+    valid_faces = []
+    # Upper right face
+    if x - 1 >= 0 and mask[x - 1, y] and y + 1 < img_w and mask[x, y + 1]:
+        valid_faces.append([pixel_idx[x - 1, y], pixel_idx[x, y], pixel_idx[x, y + 1]])
+    # Lower right face
+    if y + 1 < img_w and mask[x, y + 1] and x + 1 < img_h and mask[x + 1, y]:
+        valid_faces.append([pixel_idx[x, y + 1], pixel_idx[x, y], pixel_idx[x + 1, y]])
+    # Lower left face
+    if x + 1 < img_h and mask[x + 1, y] and y - 1 >= 0 and mask[x, y - 1]:
+        valid_faces.append([pixel_idx[x + 1, y], pixel_idx[x, y], pixel_idx[x, y - 1]])
+    # Upper left face
+    if y - 1 >= 0 and mask[x, y - 1] and x - 1 >= 0 and mask[x - 1, y]:
+        valid_faces.append([pixel_idx[x, y - 1], pixel_idx[x, y], pixel_idx[x - 1, y]])
+    return valid_faces
+
+def get_faces(pixel_idx, mask):
+    img_h, img_w = mask.shape
+    # generate adjacency list
+    valid_faces = []
+    with_face = []
+    for x in range(img_h):
+        for y in range(img_w):
+            if mask[x, y]:
+                cur_valid_face = find_face(pixel_idx, mask, x, y)
+                valid_faces.append(cur_valid_face)
+                with_face.append(len(cur_valid_face) > 0)
+    return np.array(valid_faces), np.array(with_face)
+
+def get_neighbors(pixel_idx, mask, pix_to_face, mesh, neighbor_max_num=8):
+    n_init_point = mask.sum()
+    img_h, img_w = mask.shape
+    # generate adjacency list
+    adj = {}
+    for x in range(img_h):
+        for y in range(img_w):
+            if mask[x, y]:
+                adj[pixel_idx[x,y]] = find_neighbor(pixel_idx, pix_to_face, mask, mesh, x, y)
+    with_neighbors = []
+    neighbor_idxs = np.tile(np.arange(n_init_point)[:, None], (1, neighbor_max_num))
+    neighbor_weights = np.zeros((n_init_point, neighbor_max_num), dtype=np.float32)
+    for idx in range(n_init_point):
+        neighbor_num = min(len(adj[idx]), neighbor_max_num)
+        neighbor_idxs[idx, :neighbor_num] = np.array(list(adj[idx]))[:neighbor_num]
+        neighbor_weights[idx, :neighbor_num] = -1.0 / neighbor_num
+        if neighbor_num == 1:
+            with_neighbors.append(False)
+        else:
+            with_neighbors.append(True)
+    return neighbor_idxs, neighbor_weights, np.array(with_neighbors)
 
 
 def save_pos_map(pos_map, path):
@@ -48,6 +117,8 @@ if __name__ == '__main__':
 
     arg_parser = ArgumentParser()
     arg_parser.add_argument('-c', '--config_path', type = str, help = 'Configuration file path.')
+    arg_parser.add_argument('-o', '--output_path', type=str, help='Configuration file path.')
+    arg_parser.add_argument('-t', '--template_path', type=str, help='Configuration file path.')
     args = arg_parser.parse_args()
 
     opt = yaml.load(open(args.config_path, encoding = 'UTF-8'), Loader = yaml.FullLoader)
@@ -56,7 +127,7 @@ if __name__ == '__main__':
     dataset = MvRgbDataset(**opt['train']['data'])
     data_dir, frame_list = dataset.data_dir, dataset.pose_list
 
-    os.makedirs(data_dir + '/smpl_pos_map', exist_ok = True)
+    os.makedirs(data_dir + f'/{args.output_path}', exist_ok = True)
 
     cano_renderer = Renderer(map_size, map_size, shader_name = 'vertex_attribute')
 
@@ -76,12 +147,12 @@ if __name__ == '__main__':
         cano_smpl_v_min = cano_smpl_v.min()
         smpl_faces = smpl_model.faces.astype(np.int64)
 
-    if os.path.exists(data_dir + '/template.ply'):
-        print('# Loading template from %s' % (data_dir + '/template.ply'))
-        template = trimesh.load(data_dir + '/template.ply', process = False)
+    if os.path.exists(data_dir + f'/{args.template_path}.ply'):
+        print('# Loading template from %s' % (data_dir + f'/{args.template_path}.ply'))
+        template = trimesh.load(data_dir + f'/{args.template_path}.ply', process = False)
         using_template = True
     else:
-        print(f'# Cannot find template.ply from {data_dir}, using SMPL-X as template')
+        print(f'# Cannot find {args.template_path}.ply from {data_dir}, using SMPL-X as template')
         template = trimesh.Trimesh(cano_smpl_v, smpl_faces, process = False)
         using_template = False
 
@@ -89,6 +160,7 @@ if __name__ == '__main__':
     smpl_faces = template.faces.astype(np.int64)
     cano_smpl_v_dup = cano_smpl_v[smpl_faces.reshape(-1)]
     cano_smpl_n_dup = template.vertex_normals.astype(np.float32)[smpl_faces.reshape(-1)]
+    cano_smpl_t_dup = template.visual.vertex_colors.astype(np.float32)[smpl_faces.reshape(-1)][:, :3] / 255
 
     # define front & back view matrices
     front_mv = np.identity(4, np.float32)
@@ -104,24 +176,64 @@ if __name__ == '__main__':
     # render canonical smpl position maps
     cano_renderer.set_model(cano_smpl_v_dup, cano_smpl_v_dup)
     cano_renderer.set_camera(front_mv)
-    front_cano_pos_map = cano_renderer.render()[:, :, :3]
+    front_cano_pos_map, front_cano_pix_to_face = cano_renderer.render()
+    front_cano_pos_map =  front_cano_pos_map[:, :, :3]
 
     cano_renderer.set_camera(back_mv)
-    back_cano_pos_map = cano_renderer.render()[:, :, :3]
+    back_cano_pos_map, back_cano_pix_to_face = cano_renderer.render()
+    back_cano_pos_map = back_cano_pos_map[:, :, :3]
     back_cano_pos_map = cv.flip(back_cano_pos_map, 1)
+    back_cano_pix_to_face = cv.flip(back_cano_pix_to_face, 1)
+
     cano_pos_map = np.concatenate([front_cano_pos_map, back_cano_pos_map], 1)
-    cv.imwrite(data_dir + '/smpl_pos_map/cano_smpl_pos_map.exr', cano_pos_map)
+    cv.imwrite(data_dir + f'/{args.output_path}/cano_smpl_pos_map.exr', cano_pos_map)
+    # Generate neighbor idx and neighbor weights
+    cano_pix_to_face_map = np.concatenate([front_cano_pix_to_face, back_cano_pix_to_face], 1)
+    cano_smpl_mask = torch.linalg.norm(torch.from_numpy(cano_pos_map).to(torch.float32), dim=-1) > 0.
+    pixel_idx = np.full(cano_pix_to_face_map.shape, -1, dtype=np.int64)
+    pixel_idx[cano_smpl_mask] = np.arange(cano_smpl_mask.sum())
+    neighbor_idxs, neighbor_weights, with_neighbor = get_neighbors(pixel_idx, cano_smpl_mask, cano_pix_to_face_map, template)
+    # save as npy file and use later
+    with open(data_dir + f'/{args.output_path}/neighbor_idx.npy', 'wb') as f:
+        np.save(f, neighbor_idxs)
+    with open(data_dir + f'/{args.output_path}/neighbor_weights.npy', 'wb') as f:
+        np.save(f, neighbor_weights)
+    with open(data_dir + f'/{args.output_path}/with_neighbor.npy', 'wb') as f:
+        np.save(f, with_neighbor)
+
+    # Generate mesh-like faces
+    valid_faces, with_face = get_faces(pixel_idx, cano_smpl_mask)
+    with open(data_dir + f'/{args.output_path}/valid_faces.npy', 'wb') as f:
+        np.save(f, valid_faces)
+    with open(data_dir + f'/{args.output_path}/with_face.npy', 'wb') as f:
+        np.save(f, with_face)
+
 
     # render canonical smpl normal maps
     cano_renderer.set_model(cano_smpl_v_dup, cano_smpl_n_dup)
     cano_renderer.set_camera(front_mv)
-    front_cano_nml_map = cano_renderer.render()[:, :, :3]
+    front_cano_nml_map, _ = cano_renderer.render()
+    front_cano_nml_map = front_cano_nml_map[:, :, :3]
 
     cano_renderer.set_camera(back_mv)
-    back_cano_nml_map = cano_renderer.render()[:, :, :3]
+    back_cano_nml_map, _ = cano_renderer.render()
+    back_cano_nml_map = back_cano_nml_map[:, :, :3]
     back_cano_nml_map = cv.flip(back_cano_nml_map, 1)
     cano_nml_map = np.concatenate([front_cano_nml_map, back_cano_nml_map], 1)
-    cv.imwrite(data_dir + '/smpl_pos_map/cano_smpl_nml_map.exr', cano_nml_map)
+    cv.imwrite(data_dir + f'/{args.output_path}/cano_smpl_nml_map.exr', cano_nml_map)
+
+    #render canonical smpl tightness maps
+    # cano_renderer.set_model(cano_smpl_v_dup, cano_smpl_t_dup)
+    # cano_renderer.set_camera(front_mv)
+    # front_cano_t_map, _ = cano_renderer.render()
+    # front_cano_t_map = front_cano_t_map[:, :, :3]
+
+    # cano_renderer.set_camera(back_mv)
+    # back_cano_t_map, _ = cano_renderer.render()
+    # back_cano_t_map = back_cano_t_map[:, :, :3]
+    # back_cano_t_map = cv.flip(back_cano_t_map, 1)
+    # cano_t_map = np.concatenate([front_cano_t_map, back_cano_t_map], 1)
+    # cv.imwrite(data_dir + '/smpl_pos_map/cano_smpl_t_map.exr', cano_t_map)
 
     body_mask = np.linalg.norm(cano_pos_map, axis = -1) > 0.
     cano_pts = cano_pos_map[body_mask]
@@ -131,7 +243,7 @@ if __name__ == '__main__':
     else:
         pts_lbs = interpolate_lbs(cano_pts, cano_smpl_v, smpl_faces, smpl_model.lbs_weights)
         pts_lbs = torch.from_numpy(pts_lbs).cuda()
-    np.save(data_dir + '/smpl_pos_map/init_pts_lbs.npy', pts_lbs.cpu().numpy())
+    np.save(data_dir + f'/{args.output_path}/init_pts_lbs.npy', pts_lbs.cpu().numpy())
 
     inv_cano_smpl_A = torch.linalg.inv(cano_smpl.A).cuda()
     body_mask = torch.from_numpy(body_mask).cuda()
@@ -159,4 +271,4 @@ if __name__ == '__main__':
         live_pos_map = F.interpolate(live_pos_map.permute(2, 0, 1)[None], None, [0.5, 0.5], mode = 'nearest')[0]
         live_pos_map = live_pos_map.permute(1, 2, 0).cpu().numpy()
 
-        cv.imwrite(data_dir + '/smpl_pos_map/%08d.exr' % pose_idx, live_pos_map)
+        cv.imwrite(data_dir + f'/{args.output_path}/%08d.exr' % pose_idx, live_pos_map)
