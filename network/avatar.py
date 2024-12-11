@@ -11,16 +11,25 @@ import config
 from network.styleunet.dual_styleunet import DualStyleUNet
 from gaussians.gaussian_model import GaussianModel
 from gaussians.gaussian_renderer import render3
-
+from pytorch3d.structures import Meshes 
 
 class AvatarNet(nn.Module):
     def __init__(self, opt, layer=None):
         super(AvatarNet, self).__init__()
         self.opt = opt
+        self.layer = layer
         if layer is None:
             self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map")
         else:
             self.smpl_pos_map = config.opt.get("smpl_pos_map", "smpl_pos_map") + f"_{layer}"
+            if layer == "body":
+                valid_faces = np.load(config.opt['train']['data']['data_dir'] + '/{}/valid_faces.npy'
+                                      .format(self.smpl_pos_map))
+                self.valid_faces = torch.from_numpy(valid_faces).to(torch.int64).to(config.device)
+                with_faces = np.load(config.opt['train']['data']['data_dir'] + '/{}/with_face.npy'
+                                      .format(self.smpl_pos_map))
+                self.with_faces = torch.from_numpy(with_faces).to(torch.bool).to(config.device)
+
         self.random_style = opt.get('random_style', False)
         self.with_viewdirs = opt.get('with_viewdirs', True)
 
@@ -59,7 +68,9 @@ class AvatarNet(nn.Module):
                 nn.LeakyReLU(0.2, inplace = True),
                 nn.Conv2d(64, 128, 4, 2, 1)
             )
-
+    def get_normal(self, gaussian_pos):
+        gaussian_mesh = Meshes(gaussian_pos.unsqueeze(0), self.valid_faces.unsqueeze(0))
+        return gaussian_mesh.verts_normals_packed()
     def generate_mean_hands(self):
         # print('# Generating mean hands ...')
         import glob
@@ -177,12 +188,15 @@ class AvatarNet(nn.Module):
         })
         return live_pos_map
 
-    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
+    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, only_gaussian=False):
         """
         Note that no batch index in items.
         """
         bg_color = torch.from_numpy(np.asarray(bg_color)).to(torch.float32).to(config.device)
-        pose_map = items['smpl_pos_map'][:3]
+        if self.layer is None:
+            pose_map = items['smpl_pos_map'][:3]
+        else:
+            pose_map = items['smpl_pos_map'][self.layer][:3]
         assert not (use_pca and use_vae), "Cannot use both PCA and VAE!"
         if use_pca:
             pose_map = items['smpl_pos_map_pca'][:3]
@@ -228,9 +242,17 @@ class AvatarNet(nn.Module):
         }
 
         nonrigid_offset = gaussian_vals['positions'] - self.init_points
-
+        cano_gaussian_pos = gaussian_vals["positions"]
         gaussian_vals = self.transform_cano2live(gaussian_vals, items)
-
+        gaussian_vals["cano_positions"] = cano_gaussian_pos
+        if self.layer == "body":
+            gaussian_vals["gaussian_norm"] = self.get_normal(cano_gaussian_pos)
+        
+        # In multilayer case we only use the gaussian_vals and render later
+        if only_gaussian:
+            gaussian_vals["offsets"] = nonrigid_offset
+            return gaussian_vals
+        
         render_ret = render3(
             gaussian_vals,
             bg_color,
@@ -245,32 +267,9 @@ class AvatarNet(nn.Module):
         ret = {
             'rgb_map': rgb_map,
             'mask_map': mask_map,
-            'offset': nonrigid_offset,
-            'pos_map': pos_map
+            'pos_map': pos_map,
+            'offset': nonrigid_offset
         }
-
-        gaussian_offset_vals = {
-            'positions': cano_pts,
-            'opacity': opacity,
-            'scales': scales,
-            'rotations': rotations,
-            'colors': torch.abs(nonrigid_offset) * 5,
-            'max_sh_degree': self.max_sh_degree
-        }
-        gaussian_offset_vals = self.transform_cano2live(gaussian_offset_vals, items)
-
-        render_offset_ret = render3(
-            gaussian_offset_vals,
-            bg_color,
-            items['extr'],
-            items['intr'],
-            items['img_w'],
-            items['img_h']
-        )
-
-        ret.update({
-            "offset_map":  render_offset_ret['render'].permute(1, 2, 0)
-        })
 
         if not self.training:
             ret.update({

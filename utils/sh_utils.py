@@ -22,7 +22,7 @@
 #  POSSIBILITY OF SUCH DAMAGE.
 
 import torch
-
+import numpy as np
 C0 = 0.28209479177387814
 C1 = 0.4886025119029199
 C2 = [
@@ -116,3 +116,6 @@ def RGB2SH(rgb):
 
 def SH2RGB(sh):
     return sh * C0 + 0.5
+
+def RGB2GRAY(rgb):
+    return np.array(list(map(lambda x: int(0.299*x[0] + 0.587*x[1] + 0.114*x[2]), rgb)))

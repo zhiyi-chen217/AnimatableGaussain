@@ -12,6 +12,7 @@ import config
 import utils.nerf_util as nerf_util
 import utils.visualize_util as visualize_util
 import dataset.commons as commons
+from utils.sh_utils import RGB2GRAY
 from PIL import Image
 
 class MvRgbDatasetBase(Dataset):
@@ -369,6 +370,11 @@ class MvRgbDataset4DDress(MvRgbDatasetBase):
         )
         if subject_name is None:
             self.subject_name = os.path.basename(os.path.dirname(self.data_dir))
+        if layers is not None:
+            self.surface_label = ['lower']
+            self.surface_label_color = RGB2GRAY([[128, 0, 255]])
+            self.masklabel = dict(zip(self.surface_label, self.surface_label_color))
+
     def load_cam_data(self):
         import csv
         cam_names = []
@@ -407,7 +413,17 @@ class MvRgbDataset4DDress(MvRgbDatasetBase):
             copy_png_to_folder(new_data_dir, image_list, camera=int(cam_name))
             color_img = cv.imread(os.path.join(self.data_dir, cam_name,
                                                "images", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
+        mask_img = cv.imread(os.path.join(self.data_dir, cam_name, "masks", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
 
-        mask_img = cv.imread(os.path.join(self.data_dir, cam_name,
-                                           "masks", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
+        # Use partial image
+        # if self.layers is None:
+        #     mask_img = cv.imread(os.path.join(self.data_dir, cam_name,
+        #                                     "masks", '%05d.png' % pose_idx), cv.IMREAD_UNCHANGED)
+        # else:
+        #     selected_gray = []
+        #     label_img = cv.imread(os.path.join(self.data_dir, cam_name,
+        #                                     "labels", '%05d.png' % pose_idx), cv.IMREAD_GRAYSCALE)
+        #     for layer in self.layers:
+        #         selected_gray.append(self.masklabel[layer])
+        #     mask_img = np.isin(label_img, selected_gray).astype(np.uint8) * 255
         return color_img, mask_img

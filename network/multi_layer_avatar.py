@@ -6,7 +6,6 @@ import numpy as np
 import pytorch3d.ops
 import pytorch3d.transforms
 import cv2 as cv
-from poetry.console.commands import self
 from sympy import rotations
 
 import config
@@ -85,90 +84,34 @@ class MultiLAvatarNet(nn.Module):
         layer_lbs = []
         for layer in layers:
             layer_lbs.append(self.layers_nn[layer].lbs)
-        return torch.stack(layer_lbs, dim=0)
-
-    def render_body(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
-        """
-        Note that no batch index in items.
-        """
-        # body model
-        self.cano_smpl_body_gaussian_model = GaussianModel(sh_degree=self.max_sh_degree)
-        cano_smpl_body_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_pos_map.exr'
-                                       .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
-        self.cano_smpl_body_map = torch.from_numpy(cano_smpl_body_map).to(torch.float32).to(config.device)
-        self.cano_smpl_body_mask = torch.linalg.norm(self.cano_smpl_body_map, dim=-1) > 0.
-
-        self.smpl_body_init_points = self.cano_smpl_body_map[self.cano_smpl_body_mask]
-        self.smpl_body_lbs = torch.from_numpy(np.load(config.opt['train']['data']['data_dir'] + '/{}/init_pts_lbs.npy'
-                                                      .format(self.smpl_pos_map))).to(torch.float32).to(config.device)
-        self.cano_smpl_body_gaussian_model.create_from_pcd(self.smpl_body_init_points,
-                                                           torch.rand_like(self.smpl_body_init_points),
-                                                           spatial_lr_scale=2.5)
-        bg_color = torch.from_numpy(np.asarray(bg_color)).to(torch.float32).to(config.device)
-
-        gaussian_body_vals = {
-            'positions': self.cano_smpl_body_gaussian_model.get_xyz,
-            'opacity': self.cano_smpl_body_gaussian_model.get_opacity,
-            'scales': self.cano_smpl_body_gaussian_model.get_scaling,
-            'rotations': self.cano_smpl_body_gaussian_model.get_rotation,
-            'colors': torch.ones(self.cano_smpl_body_gaussian_model.get_xyz.shape),
-            'max_sh_degree': self.max_sh_degree
-        }
-        gaussian_body_vals = self.transform_cano2live(gaussian_body_vals, self.smpl_body_lbs, items)
-
-
-        render_ret = render3(
-            gaussian_body_vals,
-            bg_color,
-            items['extr'],
-            items['intr'],
-            items['img_w'],
-            items['img_h']
-        )
-        rgb_map = render_ret['render'].permute(1, 2, 0)
-        mask_map = render_ret['mask'].permute(1, 2, 0)
-
-        ret = {
-            'rgb_map': rgb_map,
-            'mask_map': mask_map,
-        }
-
-
-        return ret
-
-    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False, with_body=False, layers=None):
+        return torch.concat(layer_lbs, dim=0)
+    
+    def get_init_points(self, layers=None):
+        if layers is None:
+            return self.init_points
+        layer_init_points = []
+        for layer in layers:
+            layer_init_points.append(self.layers_nn[layer].cano_smpl_map[self.layers_nn[layer].cano_smpl_mask])
+        return torch.concat(layer_init_points, dim=0)
+    
+    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False):
         """
         Note that no batch index in items.
         """
         bg_color = torch.from_numpy(np.asarray(bg_color)).to(torch.float32).to(config.device)
         pose_map = {}
         for layer in self.layers:
-            pose_map_layer = items['smpl_pos_map'][layer].squeeze(0)[:3]
-            assert not (use_pca and use_vae), "Cannot use both PCA and VAE!"
-            if use_pca:
-                pose_map_layer = items[layer]['smpl_pos_map_pca'].squeeze(0)[:3]
-            if use_vae:
-                pose_map_layer = items[layer]['smpl_pos_map_vae'].squeeze(0)[:3]
-            pose_map[layer] = pose_map_layer
-        items['smpl_pos_map'] = pose_map
-
-
-        cano_pts, pos_map = self.get_positions(pose_map, return_map = True, layers=layers)
-        opacity, scales, rotations = self.get_others(pose_map, layers=layers)
-        colors, color_map = self.get_colors(pose_map, items, layers=layers)
-
-        gaussian_vals = {
-            'positions': cano_pts,
-            'opacity': opacity,
-            'scales': scales,
-            'rotations': rotations,
-            'colors': colors,
-            'max_sh_degree': self.max_sh_degree
-        }
-
-        nonrigid_offset = gaussian_vals['positions'] - self.init_points
-
-        gaussian_vals = self.transform_cano2live(gaussian_vals, self.get_lbs(layers), items)
+            items["smpl_pos_map"][layer] = items["smpl_pos_map"][layer].squeeze(0)
+    
+        gaussian_body_vals = self.layers_nn["body"].render(items, only_gaussian=True)
+        gaussian_cloth_vals = self.layers_nn["cloth"].render(items, only_gaussian=True)
+        gaussian_vals = {}
+        for key in gaussian_cloth_vals.keys():
+            if key == "max_sh_degree":
+                gaussian_vals[key] = gaussian_cloth_vals[key]
+                continue
+            gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
+        gaussian_vals["gaussian_body_norm"] = gaussian_body_vals["gaussian_norm"]
 
         render_ret = render3(
             gaussian_vals,
@@ -184,40 +127,24 @@ class MultiLAvatarNet(nn.Module):
         ret = {
             'rgb_map': rgb_map,
             'mask_map': mask_map,
-            'offset': nonrigid_offset,
-            'pos_map': pos_map
+            'offset': gaussian_vals["offsets"]
         }
-
-        gaussian_offset_vals = {
-            'positions': cano_pts,
-            'opacity': opacity,
-            'scales': scales,
-            'rotations': rotations,
-            'colors': torch.abs(nonrigid_offset) * 5,
-            'max_sh_degree': self.max_sh_degree
-        }
-        gaussian_offset_vals = self.transform_cano2live(gaussian_offset_vals, items)
-
-        render_offset_ret = render3(
-            gaussian_offset_vals,
-            bg_color,
-            items['extr'],
-            items['intr'],
-            items['img_w'],
-            items['img_h']
-        )
-
-        ret.update({
-            "offset_map":  render_offset_ret['render'].permute(1, 2, 0)
-        })
-
-        if not self.training:
-            ret.update({
-                'cano_tex_map': color_map,
-                'posed_gaussians': gaussian_vals
-            })
 
         return ret
+
+
+        return ret
+    def place_cloth_over_body(self, cloth_map, cloth_mask, body_map, body_mask):
+        cloth_mask = cloth_mask[:, :, 0]
+        cloth_mask = cloth_mask > 0.5
+        body_mask = body_mask[:, :, 0]
+        body_mask = body_mask > 0.5
+        body_mask = body_mask & (~cloth_mask)
+        rgb_full_map = torch.zeros(cloth_map.shape).to(config.device)
+        rgb_full_map[cloth_mask] = cloth_map[cloth_mask]
+        rgb_full_map[body_mask] = body_map[body_mask]
+        return rgb_full_map, body_mask | cloth_mask
+
     def get_positions(self, pose_map, return_map = False, layers=None):
         if layers is None:
             layers = self.layers

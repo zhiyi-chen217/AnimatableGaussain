@@ -1,8 +1,11 @@
 import os
 
+from utils.geo_util import FaceNormals
+
 # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 # os.environ['TORCH_USE_CUDA_DSA'] = '1'
 os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
+from sklearn import neighbors
 import yaml
 import shutil
 import collections
@@ -165,6 +168,7 @@ class AvatarTrainer:
             'rotation': rotation_loss.item()
         })
 
+
         total_loss.backward()
 
         self.optm.step()
@@ -200,7 +204,7 @@ class AvatarTrainer:
         # forward_start.record()
         render_output = self.avatar_net.render(items, self.bg_color)
         image = render_output['rgb_map'].permute(2, 0, 1)
-        offset = render_output['offset']
+        
 
         # mask image & set bg color
         items['color_img'][~items['mask_img']] = self.bg_color_cuda
@@ -250,12 +254,22 @@ class AvatarTrainer:
             self.logger.log({'lpips_loss': lpips_loss.item()})
 
         if self.loss_weight['offset'] > 0.:
+            offset = render_output["offset"]
             offset_loss = torch.linalg.norm(offset, dim = -1).mean()
-            total_loss += self.loss_weight['offset'] * offset_loss
+            total_loss += self.loss_weight['offset'] * offset_loss.item()
             batch_losses.update({
                 'offset_loss': offset_loss.item()
             })
             self.logger.log({'offset_loss': offset_loss.item()})
+            
+        if self.loss_weight["body_loss"] > 0:
+            body_loss = self.body_loss(render_output["gaussian_cloth_pos"],
+                            render_output["gaussian_body_pos"], render_output["gaussian_body_norm"])
+            total_loss += self.loss_weight['body_loss'] * body_loss
+            batch_losses.update({
+                'body_loss': body_loss.item()
+            })
+            self.logger.log({'body_loss': body_loss.item()})
 
         if self.loss_weight['laplacian'] > 0.:
             gaussian_offset = render_output["offset"] * 1000
@@ -509,8 +523,9 @@ class AvatarTrainer:
             output_dir = self.opt['train']['net_ckpt_dir'] + '/eval/training'
         else:
             output_dir = self.opt['train']['net_ckpt_dir'] + '/eval_pretrain/training'
-        gt_image, _ = self.dataset.load_color_mask_images(pose_idx, view_idx)
+        gt_image, mask_image = self.dataset.load_color_mask_images(pose_idx, view_idx)
         if gt_image is not None:
+            gt_image = gt_image * np.repeat(np.expand_dims(mask_image, axis=2), 3, axis=2)
             gt_image = cv.resize(gt_image, (0, 0), fx = img_factor, fy = img_factor)
             rgb_map = np.concatenate([rgb_map, gt_image], 1)
         self.logger.log({"train_rgb_1": wandb.Image(rgb_map[:,:, ::-1])})
@@ -547,8 +562,9 @@ class AvatarTrainer:
             output_dir = self.opt['train']['net_ckpt_dir'] + '/eval/testing'
         else:
             output_dir = self.opt['train']['net_ckpt_dir'] + '/eval_pretrain/testing'
-        gt_image, _ = self.dataset.load_color_mask_images(pose_idx, view_idx)
+        gt_image, mask_image = self.dataset.load_color_mask_images(pose_idx, view_idx)
         if gt_image is not None:
+            gt_image = gt_image * np.repeat(np.expand_dims(mask_image, axis=2), 3, axis=2)
             gt_image = cv.resize(gt_image, (0, 0), fx = img_factor, fy = img_factor)
             rgb_map = np.concatenate([rgb_map, gt_image], 1)
         self.logger.log({"train_rgb_2": wandb.Image(rgb_map[:,:, ::-1])})
@@ -559,6 +575,21 @@ class AvatarTrainer:
             save_mesh_as_ply(output_dir + '/cano_pts/iter_%d.ply' % self.iter_idx, (self.avatar_net.init_points + gs_render['offset']).cpu().numpy())
 
         self.avatar_net.train()
+
+    def body_loss(self, gaussian_cloth_pos, gaussian_body_pos, gaussian_body_normal, eps=1e-3):
+        body_vertices = np.array(gaussian_body_pos.detach().cpu())
+        # find the nn index of cloth on body
+        _, nn_list = neighbors.KDTree(body_vertices).query(gaussian_cloth_pos.detach().cpu().numpy())
+        nn_list = nn_list.squeeze(1)
+        nn_points = gaussian_body_pos[nn_list]
+        nn_normals = gaussian_body_normal[nn_list]
+        distance = ((gaussian_cloth_pos - nn_points) * nn_normals).sum(dim=-1)
+        interpenetration = torch.maximum(eps - distance, torch.FloatTensor([0]).to('cuda'))
+
+        interpenetration = interpenetration.pow(2)
+        loss = interpenetration.mean(-1)
+        return loss
+
 
     @torch.no_grad()
     def test(self):
@@ -788,11 +819,13 @@ class AvatarTrainer:
             rgb_map.clip_(0., 1.)
             rgb_map = (rgb_map * 255).to(torch.uint8).cpu().numpy()
             cv.imwrite(output_dir + '/rgb_map/%08d.jpg' % item['data_idx'], rgb_map)
+            
 
-            offset_map = output['offset_map']
-            offset_map.clip_(0., 1)
-            offset_map = (offset_map * 255).to(torch.uint8).cpu().numpy()
-            cv.imwrite(output_dir + '/offset_map/offset_%08d.jpg' % item['data_idx'], offset_map)
+            if 'offset_map' in output:
+                offset_map = output['offset_map']
+                offset_map.clip_(0., 1)
+                offset_map = (offset_map * 255).to(torch.uint8).cpu().numpy()
+                cv.imwrite(output_dir + '/offset_map/offset_%08d.jpg' % item['data_idx'], offset_map)
             if 'mask_map' in output:
                 os.makedirs(output_dir + '/mask_map', exist_ok = True)
                 mask_map = output['mask_map'][:, :, 0]
@@ -859,6 +892,7 @@ class AvatarTrainer:
 if __name__ == '__main__':
     torch.manual_seed(31359)
     np.random.seed(31359)
+    torch.backends.cuda.preferred_linalg_library("magma")
     # torch.autograd.set_detect_anomaly(True)
     from argparse import ArgumentParser
 

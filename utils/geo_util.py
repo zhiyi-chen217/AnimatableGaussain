@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import numpy as np
-
+import einops
 from utils.knn import knn_gather
 
 
@@ -112,3 +112,28 @@ def normalize_vert_bbox(verts, attris = None, dim=-1, per_axis=False):
     else:
         verts = 2 * verts / torch.max(bbox_max-bbox_min, dim=dim, keepdim=True)[0]
     return verts
+
+def FaceNormals(v, f, normalize=True):
+    """
+    :param vertices: FloatTensor of shape (batch_size, num_vertices, 3)
+    :param faces: LongTensor of shape (batch_size, num_faces, 3)
+    :return: face_normals: FloatTensor of shape (batch_size, num_faces, 3)
+    """
+
+    if v.shape[0] > 1 and f.shape[0] == 1:
+        f = f.repeat(v.shape[0], 1, 1)
+
+    v_repeat = einops.repeat(v, 'b m n -> b m k n', k=f.shape[-1])
+    f_repeat = einops.repeat(f, 'b m n -> b m n k', k=v.shape[-1])
+    triangles = torch.gather(v_repeat, 1, f_repeat)
+
+    # Compute face normals
+    v0, v1, v2 = torch.unbind(triangles, dim=-2)
+    e1 = v0 - v1
+    e2 = v2 - v1
+    face_normals = torch.linalg.cross(e2, e1)
+
+    if normalize:
+        face_normals = F.normalize(face_normals, dim=-1)
+
+    return face_normals
