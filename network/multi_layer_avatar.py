@@ -67,8 +67,10 @@ class MultiLAvatarNet(nn.Module):
         self.lbs = torch.concat(self.lbs, dim=0)
         self.max_sh_degree = 0
         self.cano_gaussian_model = MultiGaussianModel(self.layers_nn, self.layers)
-        self.layered_body_mask = self.layers_nn["body"].cano_smpl_mask & (~self.layers_nn["cloth"].cano_smpl_mask)
-        self.selected_body_gaussian = self.layered_body_mask[self.layers_nn["body"].cano_smpl_mask]
+        self.upper_body_mask = self.layers_nn["body"].cano_smpl_mask & (~self.layers_nn["cloth"].cano_smpl_mask)
+        self.selected_body_gaussian = self.upper_body_mask[self.layers_nn["body"].cano_smpl_mask]
+        self.upper_cloth_mask = self.layers_nn["cloth"].cano_smpl_mask & self.layers_nn["body"].cano_smpl_mask
+        self.selected_cloth_gaussian = self.upper_cloth_mask[self.layers_nn["cloth"].cano_smpl_mask]
 
 
     def transform_cano2live(self, gaussian_vals, lbs, items):
@@ -132,7 +134,7 @@ class MultiLAvatarNet(nn.Module):
             'rgb_map': rgb_map,
             'mask_map': mask_map,
             'offset': gaussian_vals["offset"],
-            "gaussian_cloth_pos": gaussian_cloth_vals["cano_positions"],
+            "gaussian_cloth_pos": gaussian_cloth_vals["cano_positions"][self.selected_cloth_gaussian],
             "gaussian_body_pos": gaussian_body_vals["cano_positions"],
             "gaussian_body_norm": gaussian_body_vals["gaussian_norm"]
         }
