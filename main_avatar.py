@@ -460,7 +460,7 @@ class AvatarTrainer:
 
                 if self.iter_idx % self.opt['train']['eval_interval'] == 0 and self.iter_idx != 0:
                     if self.iter_idx % (10 * self.opt['train']['eval_interval']) == 0:
-                        eval_cano_pts = True
+                        eval_cano_pts = False
                     else:
                         eval_cano_pts = False
                     self.mini_test(eval_cano_pts = eval_cano_pts)

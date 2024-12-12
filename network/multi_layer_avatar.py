@@ -67,7 +67,8 @@ class MultiLAvatarNet(nn.Module):
         self.lbs = torch.concat(self.lbs, dim=0)
         self.max_sh_degree = 0
         self.cano_gaussian_model = MultiGaussianModel(self.layers_nn, self.layers)
-
+        self.layered_body_mask = self.layers_nn["body"].cano_smpl_mask & (~self.layers_nn["cloth"].cano_smpl_mask)
+        self.selected_body_gaussian = self.layered_body_mask[self.layers_nn["body"].cano_smpl_mask]
 
 
     def transform_cano2live(self, gaussian_vals, lbs, items):
@@ -99,7 +100,6 @@ class MultiLAvatarNet(nn.Module):
         Note that no batch index in items.
         """
         bg_color = torch.from_numpy(np.asarray(bg_color)).to(torch.float32).to(config.device)
-        pose_map = {}
         for layer in self.layers:
             items["smpl_pos_map"][layer] = items["smpl_pos_map"][layer].squeeze(0)
     
@@ -109,9 +109,10 @@ class MultiLAvatarNet(nn.Module):
         for key in gaussian_cloth_vals.keys():
             if key == "max_sh_degree":
                 gaussian_vals[key] = gaussian_cloth_vals[key]
-                continue
-            gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
-        gaussian_vals["gaussian_body_norm"] = gaussian_body_vals["gaussian_norm"]
+            elif key == "offset":
+                gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
+            else:
+                gaussian_vals[key] = torch.concat([gaussian_body_vals[key][self.selected_body_gaussian], gaussian_cloth_vals[key]], dim=0)
 
         render_ret = render3(
             gaussian_vals,
@@ -127,23 +128,14 @@ class MultiLAvatarNet(nn.Module):
         ret = {
             'rgb_map': rgb_map,
             'mask_map': mask_map,
-            'offset': gaussian_vals["offsets"]
+            'offset': gaussian_vals["offsets"],
+            "gaussian_cloth_pos": gaussian_cloth_vals["cano_positions"],
+            "gaussian_body_pos": gaussian_body_vals["cano_positions"],
+            "gaussian_body_norm": gaussian_body_vals["gaussian_norm"]
         }
 
         return ret
 
-
-        return ret
-    def place_cloth_over_body(self, cloth_map, cloth_mask, body_map, body_mask):
-        cloth_mask = cloth_mask[:, :, 0]
-        cloth_mask = cloth_mask > 0.5
-        body_mask = body_mask[:, :, 0]
-        body_mask = body_mask > 0.5
-        body_mask = body_mask & (~cloth_mask)
-        rgb_full_map = torch.zeros(cloth_map.shape).to(config.device)
-        rgb_full_map[cloth_mask] = cloth_map[cloth_mask]
-        rgb_full_map[body_mask] = body_map[body_mask]
-        return rgb_full_map, body_mask | cloth_mask
 
     def get_positions(self, pose_map, return_map = False, layers=None):
         if layers is None:

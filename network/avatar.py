@@ -241,7 +241,7 @@ class AvatarNet(nn.Module):
             'max_sh_degree': self.max_sh_degree
         }
 
-        nonrigid_offset = gaussian_vals['positions'] - self.init_points
+        nonrigid_offset = gaussian_vals['positions'] - self.cano_gaussian_model.get_xyz
         cano_gaussian_pos = gaussian_vals["positions"]
         gaussian_vals = self.transform_cano2live(gaussian_vals, items)
         gaussian_vals["cano_positions"] = cano_gaussian_pos
@@ -250,6 +250,7 @@ class AvatarNet(nn.Module):
         
         # In multilayer case we only use the gaussian_vals and render later
         if only_gaussian:
+            # Return positions in both posed and cano space
             gaussian_vals["offsets"] = nonrigid_offset
             return gaussian_vals
         
