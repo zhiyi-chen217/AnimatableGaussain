@@ -576,7 +576,7 @@ class AvatarTrainer:
 
         self.avatar_net.train()
 
-    def body_loss(self, gaussian_cloth_pos, gaussian_body_pos, gaussian_body_normal, eps=1e-3):
+    def body_loss(self, gaussian_cloth_pos, gaussian_body_pos, gaussian_body_normal, eps=1e-4):
         body_vertices = np.array(gaussian_body_pos.detach().cpu())
         # find the nn index of cloth on body
         _, nn_list = neighbors.KDTree(body_vertices).query(gaussian_cloth_pos.detach().cpu().numpy())
@@ -586,7 +586,7 @@ class AvatarTrainer:
         distance = ((gaussian_cloth_pos - nn_points) * nn_normals).sum(dim=-1)
         interpenetration = torch.maximum(eps - distance, torch.FloatTensor([0]).to('cuda'))
 
-        interpenetration = interpenetration.pow(2)
+        interpenetration = interpenetration.pow(3)
         loss = interpenetration.mean(-1)
         return loss
 
