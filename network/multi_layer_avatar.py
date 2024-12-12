@@ -128,7 +128,7 @@ class MultiLAvatarNet(nn.Module):
         ret = {
             'rgb_map': rgb_map,
             'mask_map': mask_map,
-            'offset': gaussian_vals["offsets"],
+            'offset': gaussian_vals["offset"],
             "gaussian_cloth_pos": gaussian_cloth_vals["cano_positions"],
             "gaussian_body_pos": gaussian_body_vals["cano_positions"],
             "gaussian_body_norm": gaussian_body_vals["gaussian_norm"]

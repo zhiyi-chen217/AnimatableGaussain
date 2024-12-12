@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 import pytorch3d.ops
 import pytorch3d.transforms
+from pytorch3d.io import save_ply
 import cv2 as cv
 
 import config
@@ -70,6 +71,7 @@ class AvatarNet(nn.Module):
             )
     def get_normal(self, gaussian_pos):
         gaussian_mesh = Meshes(gaussian_pos.unsqueeze(0), self.valid_faces.unsqueeze(0))
+        # save_ply("/local/home/zhiychen/AnimatableGaussain/gaussian_mesh.ply", gaussian_pos, self.valid_faces)
         return gaussian_mesh.verts_normals_packed()
     def generate_mean_hands(self):
         # print('# Generating mean hands ...')
@@ -251,7 +253,7 @@ class AvatarNet(nn.Module):
         # In multilayer case we only use the gaussian_vals and render later
         if only_gaussian:
             # Return positions in both posed and cano space
-            gaussian_vals["offsets"] = nonrigid_offset
+            gaussian_vals["offset"] = nonrigid_offset
             return gaussian_vals
         
         render_ret = render3(
