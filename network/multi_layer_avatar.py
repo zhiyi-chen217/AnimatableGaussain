@@ -109,10 +109,13 @@ class MultiLAvatarNet(nn.Module):
         for key in gaussian_cloth_vals.keys():
             if key == "max_sh_degree":
                 gaussian_vals[key] = gaussian_cloth_vals[key]
-            elif key == "offset":
-                gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
             else:
-                gaussian_vals[key] = torch.concat([gaussian_body_vals[key][self.selected_body_gaussian], gaussian_cloth_vals[key]], dim=0)
+                gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
+
+            # elif key == "offset":
+            #     gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
+            # else:
+            #     gaussian_vals[key] = torch.concat([gaussian_body_vals[key][self.selected_body_gaussian], gaussian_cloth_vals[key]], dim=0)
 
         render_ret = render3(
             gaussian_vals,
