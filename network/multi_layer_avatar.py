@@ -71,7 +71,7 @@ class MultiLAvatarNet(nn.Module):
         self.selected_body_gaussian = self.upper_body_mask[self.layers_nn["body"].cano_smpl_mask]
         self.upper_cloth_mask = self.layers_nn["cloth"].cano_smpl_mask & self.layers_nn["body"].cano_smpl_mask
         self.selected_cloth_gaussian = self.upper_cloth_mask[self.layers_nn["cloth"].cano_smpl_mask]
-
+        self.cover = opt.get("cover", False)
 
     def transform_cano2live(self, gaussian_vals, lbs, items):
         pt_mats = torch.einsum('nj,jxy->nxy', lbs, items['cano2live_jnt_mats'])
@@ -108,16 +108,20 @@ class MultiLAvatarNet(nn.Module):
         gaussian_body_vals = self.layers_nn["body"].render(items, only_gaussian=True)
         gaussian_cloth_vals = self.layers_nn["cloth"].render(items, only_gaussian=True)
         gaussian_vals = {}
-        for key in gaussian_cloth_vals.keys():
-            if key == "max_sh_degree":
-                gaussian_vals[key] = gaussian_cloth_vals[key]
-            else:
-                gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
-
-            # elif key == "offset":
-            #     gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
-            # else:
-            #     gaussian_vals[key] = torch.concat([gaussian_body_vals[key][self.selected_body_gaussian], gaussian_cloth_vals[key]], dim=0)
+        if not self.cover:
+            for key in gaussian_cloth_vals.keys():
+                if key == "max_sh_degree":
+                    gaussian_vals[key] = gaussian_cloth_vals[key]
+                else:
+                    gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
+        else:
+            for key in gaussian_cloth_vals.keys():
+                if key == "max_sh_degree":
+                    gaussian_vals[key] = gaussian_cloth_vals[key]
+                elif key == "offset":
+                    gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
+                else:
+                    gaussian_vals[key] = torch.concat([gaussian_body_vals[key][self.selected_body_gaussian], gaussian_cloth_vals[key]], dim=0)
 
         render_ret = render3(
             gaussian_vals,

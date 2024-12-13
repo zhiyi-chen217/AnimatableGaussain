@@ -584,7 +584,7 @@ class AvatarTrainer:
         nn_points = gaussian_body_pos[nn_list]
         nn_normals = gaussian_body_normal[nn_list]
         distance = ((gaussian_cloth_pos - nn_points) * nn_normals).sum(dim=-1)
-        interpenetration = torch.maximum(eps - distance, torch.FloatTensor([0]).to('cuda'))
+        interpenetration = torch.maximum(eps - distance, torch.FloatTensor([0]).to(config.device))
 
         interpenetration = interpenetration.pow(3)
         loss = interpenetration.mean(-1)
