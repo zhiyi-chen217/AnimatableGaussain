@@ -808,7 +808,8 @@ class AvatarTrainer:
                 print('Rendering pose conditions costs %.4f secs' % (time_start.elapsed_time(time_end) / 1000.))
                 time_start.record()
 
-            output = self.avatar_net.render(items, bg_color = self.bg_color, use_pca = use_pca)
+            output = self.avatar_net.render(items, bg_color = self.bg_color,
+                                            use_pca = use_pca, layers=self.opt['test'].get("render_layers", None))
             if log_time:
                 time_end.record()
                 torch.cuda.synchronize()

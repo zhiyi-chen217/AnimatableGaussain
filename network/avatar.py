@@ -30,6 +30,10 @@ class AvatarNet(nn.Module):
                 with_faces = np.load(config.opt['train']['data']['data_dir'] + '/{}/with_face.npy'
                                       .format(self.smpl_pos_map))
                 self.with_faces = torch.from_numpy(with_faces).to(torch.bool).to(config.device)
+                cano_smpl_hand_map = cv.imread(config.opt['train']['data']['data_dir'] + '/{}/cano_smpl_hand_map.exr'
+                                          .format(self.smpl_pos_map), cv.IMREAD_UNCHANGED)
+                self.cano_smpl_hand_map = torch.from_numpy(cano_smpl_hand_map).to(torch.float32).to(config.device)
+                self.cano_smpl_hand_mask = torch.linalg.norm(self.cano_smpl_hand_map , dim=-1) > 0.
 
         self.random_style = opt.get('random_style', False)
         self.with_viewdirs = opt.get('with_viewdirs', True)

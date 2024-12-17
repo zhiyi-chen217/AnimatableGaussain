@@ -97,7 +97,7 @@ class MultiLAvatarNet(nn.Module):
             layer_init_points.append(self.layers_nn[layer].cano_smpl_map[self.layers_nn[layer].cano_smpl_mask])
         return torch.concat(layer_init_points, dim=0)
     
-    def render(self, items, bg_color = (0., 0., 0.), use_pca = False, use_vae = False):
+    def render(self, items, bg_color = (0., 0., 0.), use_pca = -1, layers=None):
         """
         Note that no batch index in items.
         """
@@ -122,6 +122,10 @@ class MultiLAvatarNet(nn.Module):
                     gaussian_vals[key] = torch.concat([gaussian_body_vals[key], gaussian_cloth_vals[key]], dim=0)
                 else:
                     gaussian_vals[key] = torch.concat([gaussian_body_vals[key][self.selected_body_gaussian], gaussian_cloth_vals[key]], dim=0)
+        if layers == ["body"]:
+            gaussian_vals = gaussian_body_vals
+        elif layers == ["cloth"]:
+            gaussian_vals = gaussian_cloth_vals
 
         render_ret = render3(
             gaussian_vals,
