@@ -187,4 +187,6 @@ pytorch_ssim/
 PoissonRecon/
 output_path/
 body_models/
-
+configs/
+*.ply
+*.pkl
